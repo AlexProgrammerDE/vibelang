@@ -55,7 +55,7 @@ func (e *Environment) ExportedValues() map[string]any {
 		if name == "__file__" || name == "__dir__" || len(name) > 0 && name[0] == '_' {
 			continue
 		}
-		values[name] = value
+		values[name] = cloneValue(value)
 	}
 	return values
 }
@@ -71,6 +71,6 @@ func (e *Environment) collectVisibleValues(values map[string]any) {
 		if _, ok := value.(Callable); ok {
 			continue
 		}
-		values[name] = value
+		values[name] = cloneValue(value)
 	}
 }

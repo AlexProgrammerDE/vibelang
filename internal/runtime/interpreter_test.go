@@ -263,6 +263,83 @@ print(describe(values))
 	}
 }
 
+func TestInterpreterInterpolatesSlicesInAIFunctionBodies(t *testing.T) {
+	source := `def describe(items: list[string], digits: string) -> string:
+    Mention ${items[1:3]} and ${digits[:5]}.
+
+print(describe(["alpha", "beta", "gamma", "delta"], "31415926535"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"ok"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(client.prompts) != 1 {
+		t.Fatalf("expected 1 model prompt, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], `Mention ["beta","gamma"] and 31415.`) {
+		t.Fatalf("prompt did not interpolate slices:\n%s", client.prompts[0])
+	}
+}
+
+func TestInterpreterAIFunctionCapturesMutableValuesAtDefinitionTime(t *testing.T) {
+	source := `items = ["alpha", "beta"]
+def describe() -> string:
+    Return exactly: ${items[0]} and ${items[1]}.
+
+items[0] = "later"
+items[1] = "mutated"
+print(describe())
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"captured"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "captured\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "captured\n", stdout.String())
+	}
+
+	if len(client.prompts) != 1 {
+		t.Fatalf("expected 1 model prompt, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], "Return exactly: alpha and beta.") {
+		t.Fatalf("prompt did not preserve definition-time captured values:\n%s", client.prompts[0])
+	}
+}
+
 func TestInterpreterSupportsDefaultParametersAndKeywordCalls(t *testing.T) {
 	source := `def summarize(name: string, tone: string = "dry") -> string:
     Return exactly: ${tone} summary for ${name}.
@@ -655,6 +732,43 @@ print("vibe"[-1])
 
 	if stdout.String() != "gamma\nbeta\ne\n" {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "gamma\nbeta\ne\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsSlices(t *testing.T) {
+	source := `items = ["alpha", "beta", "gamma", "delta"]
+print(items[1:3])
+print(items[:2])
+print(items[2:])
+print(items[::-1])
+print(items[::2])
+print("vibelang"[1:5])
+print("vibelang"[-4:-1])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		`["beta","gamma"]`,
+		`["alpha","beta"]`,
+		`["gamma","delta"]`,
+		`["delta","gamma","beta","alpha"]`,
+		`["alpha","gamma"]`,
+		"ibel",
+		"lan",
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
 

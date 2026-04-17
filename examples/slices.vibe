@@ -1,0 +1,8 @@
+digits = "31415926535"
+items = ["alpha", "beta", "gamma", "delta"]
+
+print(digits[:5])
+print(digits[-3:])
+print(items[1:3])
+print(items[::-1])
+print(items[::2])

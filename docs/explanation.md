@@ -20,7 +20,7 @@ The tradeoff is that function bodies are not statically analyzable in the same w
 - declared parameter and return types
 - a JSON-only model protocol
 
-Prompt interpolation stays on the deterministic side of the language. `${...}` placeholders are parsed as real vibelang expressions, so a prompt can reference `${items[0]}`, `${len(digits)}`, or `${basename(path)}` without forcing the model to reconstruct obvious facts from raw JSON inputs.
+Prompt interpolation stays on the deterministic side of the language. `${...}` placeholders are parsed as real vibelang expressions, so a prompt can reference `${items[0]}`, `${items[1:3]}`, `${len(digits)}`, or `${basename(path)}` without forcing the model to reconstruct obvious facts from raw JSON inputs.
 
 Inline `* prompt` expressions take the same idea one step further. They let you ask the model for a value or action directly inside an assignment, condition, loop header, or standalone statement, while still routing everything through the interpreter's normal execution model.
 
@@ -45,12 +45,12 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 
 - lexical scoping for names
 - module loading with isolated exports
-- collection literals, member access, and negative indexing
+- collection literals, member access, negative indexing, and Python-style slicing
 - loops and conditionals
 - builtins for routine data work
 - builtin tools for file access, path handling, JSON, strings, environment inspection, HTTP, TCP sockets, local process execution, math, and time
 - Python-like default parameters and keyword arguments for optional inputs
-- captured non-function values inside AI function bodies
+- captured non-function values inside AI function bodies, copied by value at definition time
 - type coercion for model outputs
 - bounded helper-call recursion
 

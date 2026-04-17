@@ -68,11 +68,11 @@ type AIFunction struct {
 func NewAIFunction(def *ast.FunctionDef, defaults map[string]any, captured map[string]any) *AIFunction {
 	copiedDefaults := make(map[string]any, len(defaults))
 	for name, value := range defaults {
-		copiedDefaults[name] = value
+		copiedDefaults[name] = cloneValue(value)
 	}
 	copiedCaptured := make(map[string]any, len(captured))
 	for name, value := range captured {
-		copiedCaptured[name] = value
+		copiedCaptured[name] = cloneValue(value)
 	}
 	return &AIFunction{
 		Def:      def,
@@ -204,7 +204,7 @@ func bindCallArguments(functionName string, params []ast.Param, args []CallArgum
 		}
 		if defaults != nil {
 			if value, ok := defaults[param.Name]; ok {
-				bound[param.Name] = value
+				bound[param.Name] = cloneValue(value)
 				continue
 			}
 		}

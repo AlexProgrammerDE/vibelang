@@ -138,7 +138,7 @@ func defaultModuleAlias(path string) string {
 func cloneModuleExports(exports map[string]any) map[string]any {
 	cloned := make(map[string]any, len(exports))
 	for name, value := range exports {
-		cloned[name] = value
+		cloned[name] = cloneValue(value)
 	}
 	return cloned
 }

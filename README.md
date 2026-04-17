@@ -11,12 +11,13 @@
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
-- Supports Python-style negative indexing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
+- Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
-- Captures surrounding non-function values when an AI function is defined, so prompts can safely use module constants and top-level configuration.
+- Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, and local process helpers.
 - Runs against local model servers, with first-class support for Ollama and `llama.cpp`.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
+- Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
 
 ## Quick Start
 
@@ -86,6 +87,18 @@ Prompt interpolation is expression-aware, not just name-aware:
 def explain_file(path: string, digits: string, tone: string = "matter-of-fact") -> string:
     Write one ${tone} sentence about ${basename(path)} inside ${dirname(path)}.
     Mention that ${digits} has ${len(digits)} characters.
+```
+
+Slices are first-class expressions:
+
+```python
+digits = "31415926535"
+items = ["alpha", "beta", "gamma", "delta"]
+
+print(digits[:5])
+print(digits[-3:])
+print(items[1:3])
+print(items[::-1])
 ```
 
 Modules are ordinary `.vibe` files:

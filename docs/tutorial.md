@@ -82,6 +82,17 @@ def explain_file(path: string, digits: string) -> string:
     Mention that ${digits} has ${len(digits)} characters.
 ```
 
+The expression engine also supports Python-style slicing:
+
+```python
+digits = "31415926535"
+items = ["alpha", "beta", "gamma", "delta"]
+
+print(digits[:5])
+print(items[1:3])
+print(items[::-1])
+```
+
 Modules work with ordinary files:
 
 ```python
@@ -142,6 +153,7 @@ When you only want to check parsing or module resolution, use `--check`:
 - Read the [reference](reference.md) for language syntax and builtins.
 - Run [examples/modules/main.vibe](../examples/modules/main.vibe) to see imports and module-backed AI functions.
 - Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
+- Run [examples/slices.vibe](../examples/slices.vibe) to see slicing on strings and lists.
 - Run [examples/tool_chain.vibe](../examples/tool_chain.vibe) to see AI tool calls in action.
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.

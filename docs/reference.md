@@ -23,8 +23,8 @@ Notes:
 
 - Function bodies are raw text, not statements.
 - `${...}` placeholders are evaluated as normal vibelang expressions before the prompt is sent to the model.
-- Prompt interpolation can use arguments, current values, indexing, arithmetic, and prompt-safe builtins such as `len`, `json`, `basename`, or `join_path`.
-- AI functions capture surrounding non-function values at definition time, so module constants and top-level configuration are available inside prompt bodies.
+- Prompt interpolation can use arguments, current values, indexing, slicing, arithmetic, and prompt-safe builtins such as `len`, `json`, `basename`, or `join_path`.
+- AI functions capture surrounding non-function values at definition time by value, so later list and dict mutations do not silently change prompt bodies.
 - Parameter and return types are optional. Omitted types default to `any`.
 - Parameters may declare default values. As in Python, required parameters must come before defaulted parameters.
 
@@ -90,6 +90,7 @@ Supported expressions:
 - boolean operators: `and`, `or`, `not`
 - calls: `fn(arg1, arg2)` and `fn(name="Ada", tone="dry")`
 - indexing: `items[0]`, `items[-1]`, `record["name"]`
+- slicing: `items[1:3]`, `items[:3]`, `items[::2]`, `text[::-1]`
 - member access: `shared.format_name`, `config.name`
 
 Call notes:
@@ -98,6 +99,7 @@ Call notes:
 - User-defined functions and eligible builtins both accept keyword arguments.
 - Default parameter values are applied when arguments are omitted.
 - `and` and `or` short-circuit and return the surviving operand value, matching Python-style truthiness.
+- Slice bounds and steps use Python-like semantics for lists and strings, including negative indexes and omitted bounds.
 
 ## Types
 

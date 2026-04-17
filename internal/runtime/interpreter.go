@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"vibelang/internal/ast"
 	"vibelang/internal/model"
@@ -32,6 +33,7 @@ type Interpreter struct {
 	functions     map[string]*AIFunction
 	tools         map[string]ToolCallable
 	promptHelpers map[string]Callable
+	promptCache   map[string]*compiledPrompt
 	moduleCache   map[string]*loadedModule
 	loadingModule map[string]bool
 	sockets       map[string]*socketHandle
@@ -67,6 +69,7 @@ func NewInterpreter(config Config) *Interpreter {
 		functions:     make(map[string]*AIFunction),
 		tools:         make(map[string]ToolCallable),
 		promptHelpers: make(map[string]Callable),
+		promptCache:   make(map[string]*compiledPrompt),
 		moduleCache:   make(map[string]*loadedModule),
 		loadingModule: make(map[string]bool),
 		sockets:       make(map[string]*socketHandle),
@@ -396,6 +399,42 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 		default:
 			return nil, fmt.Errorf("cannot index %s", typeName(left))
 		}
+	case *ast.SliceExpr:
+		left, err := i.evaluateExpression(ctx, env, node.Left)
+		if err != nil {
+			return nil, err
+		}
+
+		start, err := i.evaluateOptionalExpression(ctx, env, node.Start)
+		if err != nil {
+			return nil, err
+		}
+		end, err := i.evaluateOptionalExpression(ctx, env, node.End)
+		if err != nil {
+			return nil, err
+		}
+		step, err := i.evaluateOptionalExpression(ctx, env, node.Step)
+		if err != nil {
+			return nil, err
+		}
+
+		switch container := left.(type) {
+		case []any:
+			startIndex, endIndex, stepValue, err := normalizeSliceBounds(len(container), start, end, step)
+			if err != nil {
+				return nil, err
+			}
+			return sliceList(container, startIndex, endIndex, stepValue), nil
+		case string:
+			runes := []rune(container)
+			startIndex, endIndex, stepValue, err := normalizeSliceBounds(len(runes), start, end, step)
+			if err != nil {
+				return nil, err
+			}
+			return sliceString(runes, startIndex, endIndex, stepValue), nil
+		default:
+			return nil, fmt.Errorf("cannot slice %s", typeName(left))
+		}
 	case *ast.MemberExpr:
 		left, err := i.evaluateExpression(ctx, env, node.Left)
 		if err != nil {
@@ -437,6 +476,51 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 	default:
 		return nil, fmt.Errorf("unsupported expression type %T", expression)
 	}
+}
+
+func (i *Interpreter) evaluateOptionalExpression(ctx context.Context, env *Environment, expression ast.Expr) (any, error) {
+	if expression == nil {
+		return nil, nil
+	}
+	return i.evaluateExpression(ctx, env, expression)
+}
+
+func sliceList(values []any, start, end, step int) []any {
+	if len(values) == 0 {
+		return []any{}
+	}
+
+	result := make([]any, 0)
+	if step > 0 {
+		for index := start; index < end; index += step {
+			result = append(result, values[index])
+		}
+		return result
+	}
+
+	for index := start; index > end; index += step {
+		result = append(result, values[index])
+	}
+	return result
+}
+
+func sliceString(runes []rune, start, end, step int) string {
+	if len(runes) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	if step > 0 {
+		for index := start; index < end; index += step {
+			builder.WriteRune(runes[index])
+		}
+		return builder.String()
+	}
+
+	for index := start; index > end; index += step {
+		builder.WriteRune(runes[index])
+	}
+	return builder.String()
 }
 
 func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environment, prompt *ast.PromptExpr, returnType string) (any, error) {

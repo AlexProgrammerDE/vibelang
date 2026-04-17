@@ -142,6 +142,25 @@ func asMap(value any) (map[string]any, bool) {
 	return v, ok
 }
 
+func cloneValue(value any) any {
+	switch v := value.(type) {
+	case []any:
+		cloned := make([]any, len(v))
+		for index, item := range v {
+			cloned[index] = cloneValue(item)
+		}
+		return cloned
+	case map[string]any:
+		cloned := make(map[string]any, len(v))
+		for key, item := range v {
+			cloned[key] = cloneValue(item)
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
 func iterableValues(value any) ([]any, error) {
 	switch v := value.(type) {
 	case []any:
@@ -203,4 +222,63 @@ func normalizeSequenceIndex(index any, length int, kind string) (int, error) {
 		return 0, fmt.Errorf("%s index %d out of range", kind, position)
 	}
 	return int(position), nil
+}
+
+func normalizeSliceBounds(length int, startValue, endValue, stepValue any) (int, int, int, error) {
+	step := int64(1)
+	if stepValue != nil {
+		parsedStep, ok := asInt(stepValue)
+		if !ok {
+			return 0, 0, 0, fmt.Errorf("slice step must be an integer")
+		}
+		if parsedStep == 0 {
+			return 0, 0, 0, fmt.Errorf("slice step cannot be zero")
+		}
+		step = parsedStep
+	}
+
+	if step > 0 {
+		start, err := normalizeSliceBound(startValue, length, 0, 0, length)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		end, err := normalizeSliceBound(endValue, length, length, 0, length)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		return start, end, int(step), nil
+	}
+
+	start, err := normalizeSliceBound(startValue, length, length-1, -1, length-1)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	end, err := normalizeSliceBound(endValue, length, -1, -1, length-1)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return start, end, int(step), nil
+}
+
+func normalizeSliceBound(value any, length int, defaultValue, minValue, maxValue int) (int, error) {
+	if value == nil {
+		return defaultValue, nil
+	}
+
+	index, ok := asInt(value)
+	if !ok {
+		return 0, fmt.Errorf("slice bounds must be integers")
+	}
+	if index < 0 {
+		index += int64(length)
+	}
+
+	position := int(index)
+	if position < minValue {
+		position = minValue
+	}
+	if position > maxValue {
+		position = maxValue
+	}
+	return position, nil
 }

@@ -253,3 +253,21 @@ result = shared.format_name("Ada")
 		t.Fatalf("expected member name format_name, got %q", member.Name)
 	}
 }
+
+func TestParseSliceExpressions(t *testing.T) {
+	source := `items = ["alpha", "beta", "gamma", "delta"]
+middle = items[1:3]
+tail = items[2:]
+copy = items[:]
+reverse = items[::-1]
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 5 {
+		t.Fatalf("expected 5 statements, got %d", len(program.Statements))
+	}
+}

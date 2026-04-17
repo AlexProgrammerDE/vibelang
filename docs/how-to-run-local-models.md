@@ -33,7 +33,7 @@ Useful flags:
 - `--check`: parse the program and exit before contacting the model.
 - `--trace`: inspect raw model responses and helper calls.
 
-`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/stdlib.vibe` and `examples/ops.vibe` cover the broader standard library.
+`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/stdlib.vibe` and `examples/ops.vibe` cover the broader standard library.
 
 ## Run With llama.cpp
 

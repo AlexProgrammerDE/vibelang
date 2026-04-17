@@ -1004,14 +1004,11 @@ func (p *exprParser) parsePostfix() (ast.Expr, error) {
 		}
 
 		if p.match(lexer.TokenLBracket) {
-			indexExpr, err := p.parseExpression()
+			accessExpr, err := p.parseBracketAccess(expr)
 			if err != nil {
 				return nil, err
 			}
-			if !p.match(lexer.TokenRBracket) {
-				return nil, p.errorf("expected ']'")
-			}
-			expr = &ast.IndexExpr{Line: expr.LineNumber(), Left: expr, Index: indexExpr}
+			expr = accessExpr
 			continue
 		}
 
@@ -1030,6 +1027,136 @@ func (p *exprParser) parsePostfix() (ast.Expr, error) {
 
 		return expr, nil
 	}
+}
+
+func (p *exprParser) parseBracketAccess(left ast.Expr) (ast.Expr, error) {
+	content, err := p.collectBracketContent()
+	if err != nil {
+		return nil, err
+	}
+
+	firstColon := topLevelTokenIndex(content, lexer.TokenColon)
+	if firstColon < 0 {
+		indexExpr, err := parseExpressionTokens(content)
+		if err != nil {
+			return nil, err
+		}
+		return &ast.IndexExpr{Line: left.LineNumber(), Left: left, Index: indexExpr}, nil
+	}
+
+	startExpr, err := parseOptionalExpressionTokens(content[:firstColon])
+	if err != nil {
+		return nil, err
+	}
+
+	remaining := content[firstColon+1:]
+	secondColon := topLevelTokenIndex(remaining, lexer.TokenColon)
+
+	var endTokens []lexer.Token
+	var stepTokens []lexer.Token
+	if secondColon >= 0 {
+		endTokens = remaining[:secondColon]
+		stepTokens = remaining[secondColon+1:]
+	} else {
+		endTokens = remaining
+	}
+
+	endExpr, err := parseOptionalExpressionTokens(endTokens)
+	if err != nil {
+		return nil, err
+	}
+	stepExpr, err := parseOptionalExpressionTokens(stepTokens)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ast.SliceExpr{
+		Line:  left.LineNumber(),
+		Left:  left,
+		Start: startExpr,
+		End:   endExpr,
+		Step:  stepExpr,
+	}, nil
+}
+
+func (p *exprParser) collectBracketContent() ([]lexer.Token, error) {
+	collected := make([]lexer.Token, 0)
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+
+	for !p.isAtEnd() {
+		token := p.peek()
+		if token.Kind == lexer.TokenRBracket && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 {
+			p.advance()
+			return collected, nil
+		}
+
+		switch token.Kind {
+		case lexer.TokenLParen:
+			parenDepth++
+		case lexer.TokenRParen:
+			if parenDepth == 0 {
+				return nil, p.errorf("unexpected ')'")
+			}
+			parenDepth--
+		case lexer.TokenLBracket:
+			bracketDepth++
+		case lexer.TokenRBracket:
+			if bracketDepth == 0 {
+				return nil, p.errorf("unexpected ']'")
+			}
+			bracketDepth--
+		case lexer.TokenLBrace:
+			braceDepth++
+		case lexer.TokenRBrace:
+			if braceDepth == 0 {
+				return nil, p.errorf("unexpected '}'")
+			}
+			braceDepth--
+		}
+
+		collected = append(collected, token)
+		p.advance()
+	}
+
+	return nil, p.errorf("expected ']'")
+}
+
+func parseOptionalExpressionTokens(tokens []lexer.Token) (ast.Expr, error) {
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+	return parseExpressionTokens(tokens)
+}
+
+func topLevelTokenIndex(tokens []lexer.Token, delimiter lexer.TokenKind) int {
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+
+	for index, token := range tokens {
+		if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && token.Kind == delimiter {
+			return index
+		}
+
+		switch token.Kind {
+		case lexer.TokenLParen:
+			parenDepth++
+		case lexer.TokenRParen:
+			parenDepth--
+		case lexer.TokenLBracket:
+			bracketDepth++
+		case lexer.TokenRBracket:
+			bracketDepth--
+		case lexer.TokenLBrace:
+			braceDepth++
+		case lexer.TokenRBrace:
+			braceDepth--
+		}
+	}
+
+	return -1
 }
 
 func (p *exprParser) parseCallArgument() (ast.CallArgument, error) {

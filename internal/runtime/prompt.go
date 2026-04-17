@@ -17,6 +17,16 @@ type ToolEvent struct {
 	Result    any
 }
 
+type compiledPrompt struct {
+	segments []promptSegment
+}
+
+type promptSegment struct {
+	Literal string
+	Source  string
+	Expr    ast.Expr
+}
+
 func aiSystemPrompt() string {
 	return strings.Join([]string{
 		"You are the execution engine for vibelang.",
@@ -109,12 +119,12 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 
 func (i *Interpreter) renderPromptText(ctx context.Context, body string, values map[string]any) (string, error) {
 	env := i.newPromptEnvironment(values)
-	return interpolatePrompt(body, func(source string) (any, error) {
-		expr, err := parser.ParseExpressionSource(source)
-		if err != nil {
-			return nil, err
-		}
-		return i.evaluateExpression(ctx, env, expr)
+	template, err := i.compilePrompt(body)
+	if err != nil {
+		return "", err
+	}
+	return template.render(func(segment promptSegment) (any, error) {
+		return i.evaluateExpression(ctx, env, segment.Expr)
 	})
 }
 
@@ -141,30 +151,79 @@ func (i *Interpreter) newPromptEnvironment(values map[string]any) *Environment {
 	return env
 }
 
-func interpolatePrompt(body string, resolve func(string) (any, error)) (string, error) {
-	var builder strings.Builder
+func (i *Interpreter) compilePrompt(body string) (*compiledPrompt, error) {
+	if cached, ok := i.promptCache[body]; ok {
+		return cached, nil
+	}
+
+	template, err := parsePromptTemplate(body)
+	if err != nil {
+		return nil, err
+	}
+	i.promptCache[body] = template
+	return template, nil
+}
+
+func parsePromptTemplate(body string) (*compiledPrompt, error) {
+	segments := make([]promptSegment, 0)
+	start := 0
 
 	for index := 0; index < len(body); {
-		if body[index] == '$' && index+1 < len(body) && body[index+1] == '{' {
-			exprSource, nextIndex, err := readPromptPlaceholder(body, index+2)
-			if err != nil {
-				return "", err
-			}
-			exprSource = strings.TrimSpace(exprSource)
-			if exprSource == "" {
-				return "", fmt.Errorf("prompt interpolation cannot be empty")
-			}
-			value, err := resolve(exprSource)
-			if err != nil {
-				return "", fmt.Errorf("interpolate %q: %w", exprSource, err)
-			}
-			builder.WriteString(stringify(value))
-			index = nextIndex
+		if body[index] != '$' || index+1 >= len(body) || body[index+1] != '{' {
+			index++
 			continue
 		}
 
-		builder.WriteByte(body[index])
-		index++
+		if start < index {
+			segments = append(segments, promptSegment{Literal: body[start:index]})
+		}
+
+		exprSource, nextIndex, err := readPromptPlaceholder(body, index+2)
+		if err != nil {
+			return nil, err
+		}
+		exprSource = strings.TrimSpace(exprSource)
+		if exprSource == "" {
+			return nil, fmt.Errorf("prompt interpolation cannot be empty")
+		}
+
+		expr, err := parser.ParseExpressionSource(exprSource)
+		if err != nil {
+			return nil, fmt.Errorf("interpolate %q: %w", exprSource, err)
+		}
+		segments = append(segments, promptSegment{
+			Source: exprSource,
+			Expr:   expr,
+		})
+
+		index = nextIndex
+		start = nextIndex
+	}
+
+	if start < len(body) {
+		segments = append(segments, promptSegment{Literal: body[start:]})
+	}
+	if len(segments) == 0 {
+		segments = append(segments, promptSegment{Literal: body})
+	}
+
+	return &compiledPrompt{segments: segments}, nil
+}
+
+func (p *compiledPrompt) render(resolve func(promptSegment) (any, error)) (string, error) {
+	var builder strings.Builder
+
+	for _, segment := range p.segments {
+		if segment.Expr == nil {
+			builder.WriteString(segment.Literal)
+			continue
+		}
+
+		value, err := resolve(segment)
+		if err != nil {
+			return "", fmt.Errorf("interpolate %q: %w", segment.Source, err)
+		}
+		builder.WriteString(stringify(value))
 	}
 
 	return builder.String(), nil

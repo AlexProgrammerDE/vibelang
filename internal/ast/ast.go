@@ -199,6 +199,17 @@ type IndexExpr struct {
 func (*IndexExpr) exprNode()         {}
 func (e *IndexExpr) LineNumber() int { return e.Line }
 
+type SliceExpr struct {
+	Line  int
+	Left  Expr
+	Start Expr
+	End   Expr
+	Step  Expr
+}
+
+func (*SliceExpr) exprNode()         {}
+func (e *SliceExpr) LineNumber() int { return e.Line }
+
 type MemberExpr struct {
 	Line int
 	Left Expr
