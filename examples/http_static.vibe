@@ -1,4 +1,5 @@
-site = join_path([cwd(), ".vibe-static-site"])
+base = env("RUNNER_TEMP") or env("TMPDIR") or cwd()
+site = join_path([base, "vibelang-static-site"])
 pkg = join_path([site, "pkg"])
 
 make_dir(pkg)
