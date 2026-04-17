@@ -238,23 +238,17 @@ func (p *Parser) parseSimpleStatement() (ast.Stmt, error) {
 	}
 	p.index++
 
-	ep := newExprParser(line.Tokens)
-	target, err := ep.parseExpression()
-	if err != nil {
-		return nil, err
-	}
-	if ep.match(lexer.TokenAssign) {
-		value, err := ep.parseExpression()
+	if assignIndex := findTopLevelToken(line.Tokens, lexer.TokenAssign); assignIndex >= 0 {
+		target, err := parseTargetTokens(line.Tokens[:assignIndex])
 		if err != nil {
 			return nil, err
 		}
-		if !ep.isAtEnd() {
-			return nil, ep.errorf("unexpected token %q", ep.peek().Lexeme)
+		if err := validateTargetExpression(target, line.Number); err != nil {
+			return nil, err
 		}
-		switch target.(type) {
-		case *ast.Identifier, *ast.IndexExpr, *ast.MemberExpr:
-		default:
-			return nil, fmt.Errorf("line %d: invalid assignment target", line.Number)
+		value, err := parseExpressionTokens(line.Tokens[assignIndex+1:])
+		if err != nil {
+			return nil, err
 		}
 		return &ast.AssignStmt{
 			Line:   line.Number,
@@ -262,10 +256,12 @@ func (p *Parser) parseSimpleStatement() (ast.Stmt, error) {
 			Value:  value,
 		}, nil
 	}
-	if !ep.isAtEnd() {
-		return nil, ep.errorf("unexpected token %q", ep.peek().Lexeme)
+
+	expr, err := parseExpressionTokens(line.Tokens)
+	if err != nil {
+		return nil, err
 	}
-	return &ast.ExprStmt{Line: line.Number, Expr: target}, nil
+	return &ast.ExprStmt{Line: line.Number, Expr: expr}, nil
 }
 
 func (p *Parser) parseDefer() (ast.Stmt, error) {
@@ -647,9 +643,27 @@ func (p *Parser) parseMatchCase(indent int) (ast.MatchCase, error) {
 	if len(patternTokens) == 0 {
 		return ast.MatchCase{}, fmt.Errorf("line %d: case pattern is required", line.Number)
 	}
+	guardTokens := []lexer.Token(nil)
+	if guardIndex := findTopLevelToken(patternTokens, lexer.TokenIf); guardIndex >= 0 {
+		guardTokens = patternTokens[guardIndex+1:]
+		patternTokens = patternTokens[:guardIndex]
+		if len(patternTokens) == 0 {
+			return ast.MatchCase{}, fmt.Errorf("line %d: case pattern is required", line.Number)
+		}
+		if len(guardTokens) == 0 {
+			return ast.MatchCase{}, fmt.Errorf("line %d: case guard is required after if", line.Number)
+		}
+	}
 	pattern, err := parseExpressionTokens(patternTokens)
 	if err != nil {
 		return ast.MatchCase{}, err
+	}
+	var guard ast.Expr
+	if len(guardTokens) > 0 {
+		guard, err = parseExpressionTokens(guardTokens)
+		if err != nil {
+			return ast.MatchCase{}, err
+		}
 	}
 	if _, err := cursor.expect(lexer.TokenColon); err != nil {
 		return ast.MatchCase{}, err
@@ -674,6 +688,7 @@ func (p *Parser) parseMatchCase(indent int) (ast.MatchCase, error) {
 	return ast.MatchCase{
 		Line:    line.Number,
 		Pattern: pattern,
+		Guard:   guard,
 		Body:    body,
 	}, nil
 }
@@ -819,8 +834,18 @@ func (p *Parser) parseFor(indent int) (ast.Stmt, error) {
 	if _, err := cursor.expect(lexer.TokenFor); err != nil {
 		return nil, err
 	}
-	name, err := cursor.expect(lexer.TokenIdentifier)
+	targetTokens, err := cursor.collectUntilTopLevel(lexer.TokenIn)
 	if err != nil {
+		return nil, err
+	}
+	if len(targetTokens) == 0 {
+		return nil, fmt.Errorf("line %d: for target is required", line.Number)
+	}
+	target, err := parseTargetTokens(targetTokens)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTargetExpression(target, line.Number); err != nil {
 		return nil, err
 	}
 	if _, err := cursor.expect(lexer.TokenIn); err != nil {
@@ -872,7 +897,7 @@ func (p *Parser) parseFor(indent int) (ast.Stmt, error) {
 
 	return &ast.ForStmt{
 		Line:     line.Number,
-		Name:     name.Lexeme,
+		Target:   target,
 		Iterable: iterable,
 		Body:     body,
 	}, nil
@@ -898,6 +923,77 @@ func parseExpressionTokens(tokens []lexer.Token) (ast.Expr, error) {
 		return nil, ep.errorf("unexpected token %q", ep.peek().Lexeme)
 	}
 	return expr, nil
+}
+
+func parseTargetTokens(tokens []lexer.Token) (ast.Expr, error) {
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("assignment target cannot be empty")
+	}
+
+	if parts := splitTopLevelTokens(tokens, lexer.TokenComma); len(parts) > 1 {
+		elements := make([]ast.Expr, 0, len(parts))
+		for _, part := range parts {
+			if len(part) == 0 {
+				return nil, fmt.Errorf("assignment target cannot be empty")
+			}
+			target, err := parseTargetTokens(part)
+			if err != nil {
+				return nil, err
+			}
+			elements = append(elements, target)
+		}
+		return &ast.TargetListExpr{
+			Line:     tokens[0].Line,
+			Elements: elements,
+		}, nil
+	}
+
+	if wrapsDelimited(tokens, lexer.TokenLParen, lexer.TokenRParen) {
+		return parseTargetTokens(tokens[1 : len(tokens)-1])
+	}
+	if wrapsDelimited(tokens, lexer.TokenLBracket, lexer.TokenRBracket) {
+		inner := tokens[1 : len(tokens)-1]
+		if len(inner) == 0 {
+			return nil, fmt.Errorf("assignment target cannot be empty")
+		}
+		parts := splitTopLevelTokens(inner, lexer.TokenComma)
+		elements := make([]ast.Expr, 0, len(parts))
+		for _, part := range parts {
+			if len(part) == 0 {
+				return nil, fmt.Errorf("assignment target cannot be empty")
+			}
+			target, err := parseTargetTokens(part)
+			if err != nil {
+				return nil, err
+			}
+			elements = append(elements, target)
+		}
+		return &ast.TargetListExpr{
+			Line:     tokens[0].Line,
+			Elements: elements,
+		}, nil
+	}
+
+	return parseExpressionTokens(tokens)
+}
+
+func validateTargetExpression(target ast.Expr, line int) error {
+	switch node := target.(type) {
+	case *ast.Identifier, *ast.IndexExpr, *ast.MemberExpr:
+		return nil
+	case *ast.TargetListExpr:
+		if len(node.Elements) == 0 {
+			return fmt.Errorf("line %d: invalid assignment target", line)
+		}
+		for _, element := range node.Elements {
+			if err := validateTargetExpression(element, line); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("line %d: invalid assignment target", line)
+	}
 }
 
 func (p *Parser) peekCodeLine() (lexer.Line, bool) {
@@ -977,6 +1073,94 @@ func trimRawIndent(raw string, indent, line int) (string, error) {
 		}
 	}
 	return raw[indent:], nil
+}
+
+func findTopLevelToken(tokens []lexer.Token, kind lexer.TokenKind) int {
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+
+	for index, token := range tokens {
+		switch token.Kind {
+		case lexer.TokenLParen:
+			parenDepth++
+		case lexer.TokenRParen:
+			parenDepth--
+		case lexer.TokenLBracket:
+			bracketDepth++
+		case lexer.TokenRBracket:
+			bracketDepth--
+		case lexer.TokenLBrace:
+			braceDepth++
+		case lexer.TokenRBrace:
+			braceDepth--
+		default:
+			if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && token.Kind == kind {
+				return index
+			}
+		}
+	}
+	return -1
+}
+
+func splitTopLevelTokens(tokens []lexer.Token, delimiter lexer.TokenKind) [][]lexer.Token {
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+	parts := make([][]lexer.Token, 0, 1)
+	start := 0
+
+	for index, token := range tokens {
+		switch token.Kind {
+		case lexer.TokenLParen:
+			parenDepth++
+		case lexer.TokenRParen:
+			parenDepth--
+		case lexer.TokenLBracket:
+			bracketDepth++
+		case lexer.TokenRBracket:
+			bracketDepth--
+		case lexer.TokenLBrace:
+			braceDepth++
+		case lexer.TokenRBrace:
+			braceDepth--
+		}
+		if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && token.Kind == delimiter {
+			parts = append(parts, tokens[start:index])
+			start = index + 1
+		}
+	}
+	return append(parts, tokens[start:])
+}
+
+func wrapsDelimited(tokens []lexer.Token, left, right lexer.TokenKind) bool {
+	if len(tokens) < 2 || tokens[0].Kind != left || tokens[len(tokens)-1].Kind != right {
+		return false
+	}
+
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+	for index, token := range tokens {
+		switch token.Kind {
+		case lexer.TokenLParen:
+			parenDepth++
+		case lexer.TokenRParen:
+			parenDepth--
+		case lexer.TokenLBracket:
+			bracketDepth++
+		case lexer.TokenRBracket:
+			bracketDepth--
+		case lexer.TokenLBrace:
+			braceDepth++
+		case lexer.TokenRBrace:
+			braceDepth--
+		}
+		if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && index < len(tokens)-1 {
+			return false
+		}
+	}
+	return parenDepth == 0 && bracketDepth == 0 && braceDepth == 0
 }
 
 type lineCursor struct {

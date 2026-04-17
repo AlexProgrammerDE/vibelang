@@ -115,6 +115,7 @@ func (s *IfStmt) LineNumber() int { return s.Line }
 type MatchCase struct {
 	Line    int
 	Pattern Expr
+	Guard   Expr
 	Body    []Stmt
 }
 
@@ -149,7 +150,7 @@ func (s *TryStmt) LineNumber() int { return s.Line }
 
 type ForStmt struct {
 	Line     int
-	Name     string
+	Target   Expr
 	Iterable Expr
 	Body     []Stmt
 }
@@ -272,6 +273,14 @@ type MemberExpr struct {
 
 func (*MemberExpr) exprNode()         {}
 func (e *MemberExpr) LineNumber() int { return e.Line }
+
+type TargetListExpr struct {
+	Line     int
+	Elements []Expr
+}
+
+func (*TargetListExpr) exprNode()         {}
+func (e *TargetListExpr) LineNumber() int { return e.Line }
 
 type ListLiteral struct {
 	Line     int

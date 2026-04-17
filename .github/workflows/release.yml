@@ -63,6 +63,16 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic unpacking example
+        run: |
+          output="$(go run ./cmd/vibelang examples/unpacking.vibe)"
+          expected=$'Ada\nLovelace\n<h1>Ada &amp; Bob</h1>\n1\na\n2\nb\n3\nc\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected unpacking.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Build and publish release artifacts
         uses: goreleaser/goreleaser-action@v7
         with:

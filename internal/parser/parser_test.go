@@ -70,6 +70,34 @@ for value in range(1, 4):
 	}
 }
 
+func TestParseUnpackingTargets(t *testing.T) {
+	source := `first, second = ["ada", "grace"]
+for index, value in zip([1, 2], ["a", "b"]):
+    print(index)
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	assign, ok := program.Statements[0].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[0])
+	}
+	if _, ok := assign.Target.(*ast.TargetListExpr); !ok {
+		t.Fatalf("expected TargetListExpr, got %T", assign.Target)
+	}
+
+	loop, ok := program.Statements[1].(*ast.ForStmt)
+	if !ok {
+		t.Fatalf("expected ForStmt, got %T", program.Statements[1])
+	}
+	if _, ok := loop.Target.(*ast.TargetListExpr); !ok {
+		t.Fatalf("expected ForStmt target to be TargetListExpr, got %T", loop.Target)
+	}
+}
+
 func TestParseMatchStatement(t *testing.T) {
 	source := `match packet:
     case {"type": "ping"}:
@@ -102,6 +130,26 @@ func TestParseMatchStatement(t *testing.T) {
 	}
 	if len(dictPattern.Items) != 2 {
 		t.Fatalf("expected 2 dict pattern items, got %d", len(dictPattern.Items))
+	}
+}
+
+func TestParseMatchStatementWithGuard(t *testing.T) {
+	source := `match packet:
+    case {"type": "message", "payload": [head, tail]} if head != tail:
+        print(head)
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	matchStmt, ok := program.Statements[0].(*ast.MatchStmt)
+	if !ok {
+		t.Fatalf("expected MatchStmt, got %T", program.Statements[0])
+	}
+	if matchStmt.Cases[0].Guard == nil {
+		t.Fatalf("expected match guard to be parsed")
 	}
 }
 

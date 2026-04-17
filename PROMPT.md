@@ -55,3 +55,25 @@ add every major feature you can think of for the std and make sure the gemma 4 m
 write the std lib partially in vibelang itself as well as partially in golang via native bindings.
 
 search the web for cool features to add
+
+add support for groq, openai, e.g. external openai-api-compatible APIs
+
+also fix this:
+alex@alexlaptop:~/Downloads/vibelang_0.2.0_linux_amd64/examples$ ../vibelang -trace hello.vibe
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+summarize_weather raw model response: {"action": "call", "call": {"arguments": {"city": "Berlin", "tone": "crisp"}, "name": "summarize_weather"}}
+summarize_weather calling summarize_weather with {"city":"Berlin","tone":"crisp"}
+run hello.vibe: summarize_weather exceeded the maximum AI call depth of 8

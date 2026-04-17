@@ -120,14 +120,14 @@ Supported statements:
 
 - macro definition: `macro name(param: type) -> type:`
 - module import: `import "path" as name`, `from "path" import item`
-- assignment: `name = expression`
+- assignment: `name = expression`, `left, right = expression`
 - index assignment: `items[0] = "updated"`
 - member assignment: `config.name = "updated"`
 - deferred cleanup: `defer expression`
 - expression statement: `print(value)`
 - conditional: `if ...:`, `elif ...:`, `else:`
 - pattern matching: `match subject:` with one or more `case pattern:` clauses
-- loop: `while ...:` and `for name in iterable:`
+- loop: `while ...:` and `for target in iterable:`
 - error handling: `try:`, `except err:`, `finally:`
 - loop control: `break`, `continue`
 - `pass`
@@ -172,6 +172,8 @@ Notes:
 match packet:
     case {"type": "ping"}:
         print("pong")
+    case {"type": "message", "payload": [head, tail]} if head == tail:
+        print("duplicate")
     case {"type": "message", "payload": [head, tail]}:
         print(head)
         print(tail)
@@ -185,6 +187,7 @@ Notes:
 - Cases are checked from top to bottom until the first match succeeds.
 - Supported patterns are literals, wildcard `_`, capture names, list patterns, and dict patterns.
 - Capture names bind matched values into the current scope before the case body runs.
+- Cases may add an `if` guard after the pattern. The guard runs only after the pattern matches, and a false guard falls through to the next case.
 - Dict patterns require the referenced keys to exist and recursively match their values.
 
 ### Expressions
@@ -307,6 +310,8 @@ Notes:
 - `query_decode(query)`: decode a query string into strings and lists
 - `url_parse(raw_url)`: parse a URL into scheme, host, hostname, port, path, query, and fragment fields
 - `url_build(parts)`: build a URL string from parsed parts
+- `html_escape(text)`: escape text for HTML
+- `template_render(template, data)`: replace `${path}` placeholders from nested dict data
 - `sha256(text)`: return the hex SHA-256 digest of a string
 - `regex_match(pattern, text)`: test whether a regex matches
 - `regex_find_all(pattern, text)`: return regex matches as a list
@@ -395,7 +400,7 @@ Behavior:
 - Helper call schemas are specialized per tool, so models see exact helper names plus the allowed and required argument fields for each callable.
 - Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
 - `@cache true` memoizes successful AI function and macro results for identical inputs and directives.
-- Self-recursive helper calls are rejected and fed back into the next model step through tool history.
+- Recursive helper re-entry through the active AI stack is rejected and fed back into the next model step through tool history.
 - Repeating the same rejected helper call now fails fast instead of burning more model steps.
 - Declared return types feed into the structured response schema, so `dict{...}`, `optional[...]`, and `tuple[...]` produce stricter model output contracts.
 - Helper calls are limited by `--max-steps`.

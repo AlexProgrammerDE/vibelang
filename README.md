@@ -9,11 +9,12 @@
 - Supports AI macros with `macro` definitions and `@macro(...)` expansion syntax, so the model can synthesize real vibelang expressions on the fly.
 - Supports module loading with `import "./module.vibe" as module` and `from "./module.vibe" import helper`.
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
+- Supports Python-style unpacking targets in assignments and `for` loops.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Supports leading AI directives such as `@temperature`, `@max_tokens`, `@max_steps`, `@cache`, `@tools`, and `@deny_tools` inside function and macro bodies.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
-- Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
+- Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns plus optional `if` guards.
 - Supports structured AI return types such as `dict{city: string, alerts: optional[list[string]]}` and `tuple[string, int]`, and turns them into tighter JSON schemas for model backends.
 - Constrains helper calls with per-helper JSON schemas, so models see the exact argument names, required fields, and types for each callable tool.
 - Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
@@ -21,7 +22,7 @@
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
-- Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
+- Rejects direct and indirect recursive AI helper re-entry before it spirals into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
 - Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
@@ -149,6 +150,18 @@ print(json(names))
 print(json(lengths))
 ```
 
+Unpacking works in plain assignments and loop headers:
+
+```python
+first, second = ["Ada", "Lovelace"]
+print(first)
+print(second)
+
+for index, label in zip([1, 2, 3], ["a", "b", "c"]):
+    print(index)
+    print(label)
+```
+
 Pattern matching lets deterministic code branch on data shape before handing the rest to AI:
 
 ```python
@@ -157,6 +170,8 @@ packet = {"type": "message", "payload": ["alpha", "beta"], "meta": {"city": "Ber
 match packet:
     case {"type": "ping"}:
         print("pong")
+    case {"type": "message", "payload": [head, tail]} if head == tail:
+        print("duplicate payload")
     case {"type": "message", "payload": [head, tail], "meta": {"city": city}}:
         print(head)
         print(tail)
@@ -351,7 +366,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 
 - Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`
 - Data: `json_parse`, `json_pretty`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `sorted`, `unique`, `sum`, `min`, `max`
-- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
+- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `http_request_json`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`

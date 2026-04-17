@@ -1,0 +1,11 @@
+first, second = ["Ada", "Lovelace"]
+print(first)
+print(second)
+
+title = html_escape("Ada & Bob")
+markup = template_render("<h1>${title}</h1>", {"title": title})
+print(markup)
+
+for index, label in zip([1, 2, 3], ["a", "b", "c"]):
+    print(index)
+    print(label)

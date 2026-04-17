@@ -241,6 +241,19 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 			if !matched {
 				continue
 			}
+			if matchCase.Guard != nil {
+				guardEnv := NewEnvironment(env)
+				for name, value := range bindings {
+					guardEnv.Define(name, value)
+				}
+				allowed, err := i.evaluateCondition(ctx, guardEnv, matchCase.Guard)
+				if err != nil {
+					return signalNone, err
+				}
+				if !allowed {
+					continue
+				}
+			}
 			for name, value := range bindings {
 				env.Set(name, value)
 			}
@@ -280,7 +293,9 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 			return signalNone, err
 		}
 		for _, value := range values {
-			env.Set(node.Name, value)
+			if err := i.assignValue(ctx, env, node.Target, value); err != nil {
+				return signalNone, err
+			}
 			signal, err := i.executeBlock(ctx, env, node.Body, moduleDir)
 			if err != nil {
 				return signalNone, err
@@ -373,6 +388,20 @@ func (i *Interpreter) assignValue(ctx context.Context, env *Environment, target 
 	switch node := target.(type) {
 	case *ast.Identifier:
 		env.Set(node.Name, value)
+		return nil
+	case *ast.TargetListExpr:
+		values, err := iterableValues(value)
+		if err != nil {
+			return err
+		}
+		if len(values) != len(node.Elements) {
+			return fmt.Errorf("cannot unpack %d values into %d targets", len(values), len(node.Elements))
+		}
+		for index, element := range node.Elements {
+			if err := i.assignValue(ctx, env, element, values[index]); err != nil {
+				return err
+			}
+		}
 		return nil
 	case *ast.IndexExpr:
 		left, err := i.evaluateExpression(ctx, env, node.Left)
@@ -1034,6 +1063,9 @@ func rejectAIToolCall(name string, args map[string]any, excludeTool string, chai
 
 	signature := aiCallSignature(name, args)
 	for _, frame := range chain {
+		if frame.Name == name {
+			return fmt.Sprintf("the AI function %s is already active in the current call stack; re-entering it would recurse indefinitely", name)
+		}
 		if frame.Signature == signature {
 			return fmt.Sprintf("the AI call %s(%s) is already active; repeating it would recurse indefinitely", name, jsonString(args))
 		}

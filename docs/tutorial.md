@@ -128,6 +128,18 @@ print(json(names))
 print(json(lengths))
 ```
 
+Unpacking keeps deterministic glue code terse:
+
+```python
+first, second = ["Ada", "Lovelace"]
+print(first)
+print(second)
+
+for index, label in zip([1, 2], ["a", "b"]):
+    print(index)
+    print(label)
+```
+
 Structural pattern matching is available for deterministic branching on data shape:
 
 ```python
@@ -136,10 +148,20 @@ packet = {"type": "message", "payload": ["alpha", "beta"], "meta": {"city": "Ber
 match packet:
     case {"type": "ping"}:
         print("pong")
+    case {"type": "message", "payload": [head, tail]} if head == tail:
+        print("duplicate payload")
     case {"type": "message", "payload": [head, tail], "meta": {"city": city}}:
         print(head)
         print(tail)
         print(city)
+```
+
+For deterministic HTML assembly, the runtime also exposes small text helpers:
+
+```python
+title = html_escape("Ada & Bob")
+markup = template_render("<h1>${title}</h1>", {"title": title})
+print(markup)
 ```
 
 Modules work with ordinary files:

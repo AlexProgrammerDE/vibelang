@@ -107,6 +107,64 @@ match packet:
 	}
 }
 
+func TestInterpreterSupportsMatchGuards(t *testing.T) {
+	source := `packet = {"type": "message", "payload": ["alpha", "alpha"], "meta": {"city": "Berlin"}}
+
+match packet:
+    case {"type": "message", "payload": [head, tail]} if head != tail:
+        print("mismatch")
+    case {"type": "message", "meta": {"city": city}}:
+        print(city)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsUnpackingAssignmentsAndLoops(t *testing.T) {
+	source := `first, second = ["Ada", "Lovelace"]
+print(first)
+print(second)
+
+total = 0
+labels = ""
+for index, label in zip([1, 2, 3], ["a", "b", "c"]):
+    total = total + index
+    labels = labels + label
+
+print(total)
+print(labels)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "Ada\nLovelace\n6\nabc\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterRunsAIFunction(t *testing.T) {
 	source := `def add_one(value: int) -> int:
     Add one to the input and return the integer result.
@@ -702,6 +760,52 @@ print(summarize_weather("Berlin"))
 	}
 }
 
+func TestInterpreterRejectsIndirectRecursiveAIReentryEvenWithDifferentArguments(t *testing.T) {
+	source := `def summarize_weather(city: string, tone: string = "crisp") -> string:
+    Write one ${tone} sentence about the weather in ${city}.
+
+def refine_weather(city: string, tone: string = "gentle") -> string:
+    Refine the weather summary for ${city} in a ${tone} tone.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"refine_weather","arguments":{"city":"Berlin","tone":"gentle"}}}`,
+			`{"action":"call","call":{"name":"summarize_weather","arguments":{"city":"Berlin","tone":"brief"}}}`,
+			`{"action":"return","value":"Berlin stays bright with a brief, steady forecast."}`,
+			`{"action":"return","value":"Berlin stays bright with a brief, steady forecast."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "Berlin stays bright with a brief, steady forecast.\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+
+	if len(client.prompts) != 4 {
+		t.Fatalf("expected 4 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[2], "already active") {
+		t.Fatalf("expected rejection history in follow-up prompt:\n%s", client.prompts[2])
+	}
+}
+
 func TestInterpreterAIDirectivesLimitToolsAndOverrideModelRequest(t *testing.T) {
 	source := `def normalize(city: string) -> string:
     @temperature 0
@@ -898,6 +1002,8 @@ func TestInterpreterTextBuiltins(t *testing.T) {
 print(base64_decode("aGVsbG8="))
 print(url_encode("hello world?"))
 print(url_decode("hello+world%3F"))
+print(html_escape("<main data-city=\"Berlin\">"))
+print(template_render("Hello ${user.name} from ${city}.", {"user": {"name": "Ada"}, "city": "Berlin"}))
 print(sha256("abc"))
 print(regex_match("b.", "abc"))
 print(regex_find_all("[a-z]+", "go123lang"))
@@ -920,6 +1026,8 @@ print(regex_replace("[0-9]+", "go123lang", "-"))
 		"hello",
 		"hello+world%3F",
 		"hello world?",
+		"&lt;main data-city=&#34;Berlin&#34;&gt;",
+		"Hello Ada from Berlin.",
 		"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 		"true",
 		`["go","lang"]`,

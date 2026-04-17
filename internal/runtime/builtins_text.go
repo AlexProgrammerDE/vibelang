@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"net/url"
 	"regexp"
 	"sort"
+	"strings"
 
 	"vibelang/internal/ast"
 )
@@ -22,6 +24,8 @@ func registerTextBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("query_decode", builtinQueryDecode, "dict", "Decode a URL query string into a dict of strings and lists.", ast.Param{Name: "query", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("url_parse", builtinURLParse, "dict", "Parse a URL and return its components, including a decoded query dict.", ast.Param{Name: "raw_url", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("url_build", builtinURLBuild, "string", "Build a URL string from a dict with scheme, host, path, query, and fragment fields.", ast.Param{Name: "parts", Type: ast.TypeRef{Expr: "dict"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("html_escape", builtinHTMLEscape, "string", "Escape text for safe insertion into HTML text and attribute content.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("template_render", builtinTemplateRender, "string", "Render a template string by replacing ${path} placeholders with values from a dict using dot-separated lookup paths.", ast.Param{Name: "template", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "data", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("sha256", builtinSHA256, "string", "Return the lowercase hexadecimal SHA-256 digest for a string.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("regex_match", builtinRegexMatch, "bool", "Return true when the regular expression matches anywhere in the text.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("regex_find_all", builtinRegexFindAll, "list[string]", "Return all regex matches in the text, in order.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
@@ -179,6 +183,52 @@ func builtinURLBuild(_ context.Context, _ *Interpreter, args []any) (any, error)
 	return built.String(), nil
 }
 
+func builtinHTMLEscape(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("html_escape", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("html_escape", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	return html.EscapeString(text), nil
+}
+
+func builtinTemplateRender(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("template_render", args, 2); err != nil {
+		return nil, err
+	}
+	template, err := requireString("template_render", args[0], "template")
+	if err != nil {
+		return nil, err
+	}
+	data, ok := asMap(args[1])
+	if !ok {
+		return nil, fmt.Errorf("template_render expects data to be a dict")
+	}
+
+	var renderErr error
+	rendered := templatePlaceholderPattern.ReplaceAllStringFunc(template, func(match string) string {
+		if renderErr != nil {
+			return ""
+		}
+		parts := templatePlaceholderPattern.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		value, err := lookupTemplateValue(data, parts[1])
+		if err != nil {
+			renderErr = err
+			return ""
+		}
+		return stringify(value)
+	})
+	if renderErr != nil {
+		return nil, renderErr
+	}
+	return rendered, nil
+}
+
 func builtinSHA256(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("sha256", args, 1); err != nil {
 		return nil, err
@@ -309,4 +359,22 @@ func mapStringValue(values map[string]any, key string) string {
 		return ""
 	}
 	return stringify(raw)
+}
+
+var templatePlaceholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_\.]*)\}`)
+
+func lookupTemplateValue(data map[string]any, path string) (any, error) {
+	current := any(data)
+	for _, part := range strings.Split(path, ".") {
+		values, ok := asMap(current)
+		if !ok {
+			return nil, fmt.Errorf("template_render path %q does not point into a dict at %q", path, part)
+		}
+		value, exists := values[part]
+		if !exists {
+			return nil, fmt.Errorf("template_render path %q is missing key %q", path, part)
+		}
+		current = value
+	}
+	return current, nil
 }
