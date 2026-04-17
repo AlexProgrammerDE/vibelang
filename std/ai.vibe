@@ -1,0 +1,21 @@
+default_tone = "crisp"
+
+def rewrite(text: string, tone: string = default_tone) -> string:
+    @temperature 0.1
+    Rewrite ${text} in a ${tone} style.
+    Preserve the original meaning and keep the response to one paragraph.
+
+def summarize_payload(payload: dict, tone: string = default_tone) -> string:
+    @temperature 0
+    @cache true
+    @tools json_pretty
+    Summarize the payload ${json_pretty(payload)} in one ${tone} paragraph.
+    Focus on the most important fields and omit low-signal repetition.
+
+def draft_release_notes(version: string, changes: list[string], tone: string = "clear") -> string:
+    @temperature 0
+    @cache true
+    @tools json_pretty
+    Draft short release notes for version ${version}.
+    The change list is ${json_pretty(changes)}.
+    Return concise Markdown with a short intro and a flat bullet list.

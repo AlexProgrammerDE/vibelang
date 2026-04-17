@@ -40,7 +40,7 @@ The loop looks like this:
 
 This design is less flashy than native provider tool calling, but it is easier to reason about and test locally.
 
-Directives such as `@tools`, `@deny_tools`, `@temperature`, `@max_tokens`, and `@max_steps` make that loop more local and explicit. They let one AI body stay deterministic and tightly scoped without forcing the whole interpreter into the same limits.
+Directives such as `@tools`, `@deny_tools`, `@temperature`, `@max_tokens`, `@max_steps`, and `@cache` make that loop more local and explicit. They let one AI body stay deterministic and tightly scoped without forcing the whole interpreter into the same limits. `@cache true` is especially useful for prompt-heavy helpers that are deterministic and likely to repeat within one run.
 
 ## Why the Interpreter Is Still Useful
 
@@ -59,6 +59,7 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 - captured non-function values inside AI function bodies, copied by value at definition time
 - type coercion for model outputs
 - bounded helper-call recursion
+- opt-in memoization for repeated AI work and standard-library prompt modules such as `std/web`, `std/telemetry`, and `std/ai`
 
 In practice that means you can keep AI functions focused on language-heavy tasks and leave the boring control flow to normal code.
 

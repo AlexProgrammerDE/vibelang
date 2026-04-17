@@ -66,9 +66,23 @@ When you need tighter control over the AI runtime, put directives at the top of 
 def slugify(title: string) -> string:
     @temperature 0
     @max_steps 4
+    @cache true
     @tools lower, trim, replace, regex_replace
     Convert ${title} into a lowercase URL slug.
     Replace whitespace runs with "-".
+```
+
+When a helper is deterministic and likely to repeat, `@cache true` memoizes successful AI results for the current run:
+
+```python
+def normalize_city(city: string) -> string:
+    @temperature 0
+    @cache true
+    Return ${city} in uppercase letters.
+
+print(normalize_city("berlin"))
+print(normalize_city("berlin"))
+print(cache_stats()["entries"])
 ```
 
 Inline prompts also work without defining a function first:
@@ -152,10 +166,14 @@ Bundled `std` modules can be imported directly:
 
 ```python
 import "std/web" as web
+import "std/ai" as ai
 
 def handle(request: dict) -> dict:
     Call web.render_app_shell with the title "demo", the route ${request["path"]}, and initial state {"path": request["path"]}.
     Return a dict with html set to that app shell.
+
+summary = ai.summarize_payload({"route": "/demo", "status": 200})
+print(summary)
 ```
 
 The runtime also has native concurrency primitives:

@@ -69,13 +69,14 @@ func main() {
 	}
 
 	client, err := model.NewClient(model.Config{
-		Provider:    *provider,
-		Endpoint:    *endpoint,
-		Model:       *modelName,
-		APIKey:      resolvedAPIKey,
-		Temperature: *temperature,
-		MaxTokens:   *maxTokens,
-		Timeout:     *timeout,
+		Provider:       *provider,
+		Endpoint:       *endpoint,
+		Model:          *modelName,
+		APIKey:         resolvedAPIKey,
+		Temperature:    *temperature,
+		HasTemperature: true,
+		MaxTokens:      *maxTokens,
+		Timeout:        *timeout,
 	})
 	if err != nil {
 		fatalf("configure model client: %v", err)

@@ -10,6 +10,7 @@ type aiDirectiveConfig struct {
 	Temperature *float64
 	MaxTokens   *int
 	MaxSteps    *int
+	Cache       *bool
 	AllowTools  map[string]struct{}
 	DenyTools   map[string]struct{}
 }
@@ -69,6 +70,13 @@ func applyAIDirective(config *aiDirectiveConfig, line string, lineNumber int) er
 		}
 		config.MaxSteps = &parsed
 		return nil
+	case "cache":
+		parsed, err := parseDirectiveBool(value)
+		if err != nil {
+			return fmt.Errorf("directive line %d has invalid @cache value %q", lineNumber, value)
+		}
+		config.Cache = &parsed
+		return nil
 	case "tools":
 		names, err := parseToolDirectiveNames(value, lineNumber, "@tools")
 		if err != nil {
@@ -85,6 +93,17 @@ func applyAIDirective(config *aiDirectiveConfig, line string, lineNumber int) er
 		return nil
 	default:
 		return fmt.Errorf("directive line %d uses unknown AI directive @%s", lineNumber, name)
+	}
+}
+
+func parseDirectiveBool(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "on", "yes":
+		return true, nil
+	case "0", "false", "off", "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unsupported boolean %q", value)
 	}
 }
 

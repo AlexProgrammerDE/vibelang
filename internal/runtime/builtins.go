@@ -47,6 +47,7 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("json", builtinJSON, "string", "Encode a value as JSON.", ast.Param{Name: "value"}))
 	registerDataBuiltins(interpreter)
 	registerTextBuiltins(interpreter)
+	registerAICacheBuiltins(interpreter)
 	registerBuiltin(interpreter, promptToolBuiltin("cwd", builtinCWD, "string", "Return the current working directory."))
 	registerBuiltin(interpreter, promptToolBuiltin("file_exists", builtinFileExists, "bool", "Return true when the given path exists.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_file", builtinReadFile, "string", "Read a UTF-8 text file and return its contents.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))

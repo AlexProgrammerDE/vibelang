@@ -75,6 +75,8 @@ export GROQ_API_KEY=...
 ./bin/vibelang --provider groq --model openai/gpt-oss-20b examples/hello.vibe
 ```
 
+`vibelang` clamps a requested zero temperature to a tiny positive value for Groq so deterministic prompts still work with Groq's OpenAI-compatible API.
+
 With another OpenAI-compatible gateway:
 
 ```bash
@@ -95,6 +97,7 @@ These settings usually help:
 - keep function instructions specific about shape and type
 - declare return types instead of leaving them as `any`
 - prefer explicit default parameters and keyword arguments when a function has optional inputs
+- use `@cache true` for deterministic AI helpers that are expensive and likely to repeat in one run
 - keep deterministic work in normal code or helpers, and let the model focus on intent-heavy text generation
 
 ## Troubleshoot Common Failures

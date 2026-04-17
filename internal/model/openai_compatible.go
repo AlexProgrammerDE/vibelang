@@ -192,10 +192,14 @@ func openAIMessageText(content any) (string, error) {
 }
 
 func (c *openAICompatibleClient) temperature(request Request) float64 {
+	temperature := c.config.Temperature
 	if request.Temperature != nil {
-		return *request.Temperature
+		temperature = *request.Temperature
 	}
-	return c.config.Temperature
+	if c.config.Provider == "groq" && temperature <= 0 {
+		return 1e-8
+	}
+	return temperature
 }
 
 func (c *openAICompatibleClient) maxTokens(request Request) int {

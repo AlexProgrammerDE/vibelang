@@ -58,8 +58,46 @@ func registerDataBuiltins(interpreter *Interpreter) {
 		bindArgs:   true,
 		promptSafe: true,
 	})
+	registerBuiltin(interpreter, promptToolBuiltin("dict_items", builtinDictItems, "list[dict]", "Return the sorted key/value entries from a dict as a list of {key, value} dictionaries.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("dict_set", builtinDictSet, "dict", "Return a new dict with one key assigned to the given value.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}, ast.Param{Name: "key"}, ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("dict_merge", builtinDictMerge, "dict", "Return a new dict containing all keys from left and right, with right winning on conflicts.", ast.Param{Name: "left", Type: ast.TypeRef{Expr: "dict"}}, ast.Param{Name: "right", Type: ast.TypeRef{Expr: "dict"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "enumerate",
+		call: builtinEnumerate,
+		tool: &ToolSpec{
+			Name:       "enumerate",
+			ReturnType: ast.TypeRef{Expr: "list[dict]"},
+			Body:       "Return a list of dictionaries with index and value fields for each element in the input list.",
+			Params: []ast.Param{
+				{Name: "values", Type: ast.TypeRef{Expr: "list"}},
+				{Name: "start", Type: ast.TypeRef{Expr: "int"}, DefaultText: "0"},
+			},
+		},
+		defaults: map[string]any{
+			"start": int64(0),
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "zip",
+		call: builtinZip,
+		tool: &ToolSpec{
+			Name:       "zip",
+			ReturnType: ast.TypeRef{Expr: "list[list]"},
+			Body:       "Pair values from two lists into a list of two-item lists. By default it stops at the shorter list, or errors when strict is true and lengths differ.",
+			Params: []ast.Param{
+				{Name: "left", Type: ast.TypeRef{Expr: "list"}},
+				{Name: "right", Type: ast.TypeRef{Expr: "list"}},
+				{Name: "strict", Type: ast.TypeRef{Expr: "bool"}, DefaultText: "false"},
+			},
+		},
+		defaults: map[string]any{
+			"strict": false,
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "sorted",
 		call: builtinSorted,
@@ -241,6 +279,30 @@ func builtinDictGet(_ context.Context, _ *Interpreter, args []any) (any, error) 
 	return args[2], nil
 }
 
+func builtinDictItems(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dict_items", args, 1); err != nil {
+		return nil, err
+	}
+	dict, ok := asMap(args[0])
+	if !ok {
+		return nil, fmt.Errorf("dict_items expects a dict")
+	}
+	keys := make([]string, 0, len(dict))
+	for key := range dict {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	result := make([]any, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, map[string]any{
+			"key":   key,
+			"value": cloneValue(dict[key]),
+		})
+	}
+	return result, nil
+}
+
 func builtinDictSet(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("dict_set", args, 3); err != nil {
 		return nil, err
@@ -269,6 +331,61 @@ func builtinDictMerge(_ context.Context, _ *Interpreter, args []any) (any, error
 	result := cloneValue(left).(map[string]any)
 	for key, value := range right {
 		result[key] = cloneValue(value)
+	}
+	return result, nil
+}
+
+func builtinEnumerate(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("enumerate", args, 2); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("enumerate expects values to be a list")
+	}
+	start, err := requireInt("enumerate", args[1], "start")
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]any, 0, len(values))
+	for index, value := range values {
+		result = append(result, map[string]any{
+			"index": start + int64(index),
+			"value": cloneValue(value),
+		})
+	}
+	return result, nil
+}
+
+func builtinZip(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("zip", args, 3); err != nil {
+		return nil, err
+	}
+	left, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("zip expects left to be a list")
+	}
+	right, ok := asList(args[1])
+	if !ok {
+		return nil, fmt.Errorf("zip expects right to be a list")
+	}
+	strict, err := coerceBool(args[2])
+	if err != nil {
+		return nil, fmt.Errorf("zip strict: %w", err)
+	}
+	if strict && len(left) != len(right) {
+		return nil, fmt.Errorf("zip strict mode requires lists of equal length")
+	}
+
+	limit := len(left)
+	if len(right) < limit {
+		limit = len(right)
+	}
+
+	result := make([]any, 0, limit)
+	for index := range limit {
+		result = append(result, []any{cloneValue(left[index]), cloneValue(right[index])})
 	}
 	return result, nil
 }

@@ -49,7 +49,11 @@ jobs:
 
       - name: Parse example programs
         run: |
+          go run ./cmd/vibelang --check std/web.vibe
+          go run ./cmd/vibelang --check std/telemetry.vibe
+          go run ./cmd/vibelang --check std/ai.vibe
           go run ./cmd/vibelang --check examples/hello.vibe
+          go run ./cmd/vibelang --check examples/cache.vibe
           go run ./cmd/vibelang --check examples/keyword_args.vibe
           go run ./cmd/vibelang --check examples/match.vibe
           go run ./cmd/vibelang --check examples/macros.vibe

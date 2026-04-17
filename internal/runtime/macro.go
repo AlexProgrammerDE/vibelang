@@ -83,6 +83,16 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 	if err != nil {
 		return nil, err
 	}
+	cacheFunction := &AIFunction{
+		Def: &ast.FunctionDef{
+			Name:       macro.Name(),
+			ReturnType: macro.Def.ReturnType,
+		},
+	}
+	cacheKey, cacheHit := i.maybeLookupAICache(cacheFunction, instructions, scope, macro.directives)
+	if cacheHit {
+		return cacheKey, nil
+	}
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs("", macro.directives)
@@ -131,6 +141,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			if err != nil {
 				return nil, fmt.Errorf("%s expansion did not match %s: %w", macro.Name(), macro.Def.ReturnType.String(), err)
 			}
+			i.maybeStoreAICache(cacheKey, macro.directives, coerced)
 			i.incrementMetric("ai_macro_expansions_total", 1)
 			return coerced, nil
 		case "call":

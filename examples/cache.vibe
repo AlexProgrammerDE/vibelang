@@ -1,0 +1,15 @@
+import "std/ai" as ai
+
+def normalize_city(city: string) -> string:
+    @temperature 0
+    @cache true
+    Return ${city} in uppercase letters.
+
+first = normalize_city("berlin")
+second = normalize_city("berlin")
+stats = cache_stats()
+
+print(first)
+print(second)
+print(stats["entries"])
+print(ai.summarize_payload({"city": second, "cache_entries": stats["entries"]}))

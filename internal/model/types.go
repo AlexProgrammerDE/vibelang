@@ -6,13 +6,14 @@ import (
 )
 
 type Config struct {
-	Provider    string
-	Endpoint    string
-	Model       string
-	APIKey      string
-	Temperature float64
-	MaxTokens   int
-	Timeout     time.Duration
+	Provider       string
+	Endpoint       string
+	Model          string
+	APIKey         string
+	Temperature    float64
+	HasTemperature bool
+	MaxTokens      int
+	Timeout        time.Duration
 }
 
 type Request struct {
@@ -42,7 +43,7 @@ func (c Config) WithDefaults() Config {
 	if c.Model == "" {
 		c.Model = "gemma4"
 	}
-	if c.Temperature == 0 {
+	if !c.HasTemperature && c.Temperature == 0 {
 		c.Temperature = 0.2
 	}
 	if c.MaxTokens == 0 {

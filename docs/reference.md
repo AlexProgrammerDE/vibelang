@@ -98,6 +98,7 @@ def slugify(title: string) -> string:
     @temperature 0
     @max_tokens 128
     @max_steps 4
+    @cache true
     @tools lower, trim, replace, regex_replace
     Convert ${title} into a lowercase URL slug.
 ```
@@ -107,6 +108,7 @@ Supported directives:
 - `@temperature <float>`: override sampling temperature for this function or macro
 - `@max_tokens <int>`: override the per-step token budget
 - `@max_steps <int>`: override the helper-call loop limit
+- `@cache <bool>`: opt into memoizing successful AI results for identical inputs within one interpreter run
 - `@tools name_a, name_b`: allow only the listed helper functions
 - `@deny_tools name_a, name_b`: hide specific helper functions from this body
 
@@ -258,8 +260,11 @@ The runtime coerces model outputs to the declared return type when possible.
 - `set_difference(left, right)`: difference of two sets
 - `dict_has(dict, key)`: return whether a dict contains a key
 - `dict_get(dict, key, default=none)`: fetch a dict value with a fallback
+- `dict_items(dict)`: return sorted key/value entries as `{"key": ..., "value": ...}` dictionaries
 - `dict_set(dict, key, value)`: return a new dict with one assignment applied
 - `dict_merge(left, right)`: merge two dicts with right-hand keys winning
+- `enumerate(values, start=0)`: return a list of `{"index": ..., "value": ...}` dictionaries
+- `zip(left, right, strict=false)`: pair two lists into a list of two-item lists
 - `sorted(values, descending=false)`: return a sorted copy of a list
 - `unique(values)`: remove duplicates while preserving first occurrence order
 - `sum(values)`: sum a list of numeric values
@@ -342,12 +347,15 @@ The runtime coerces model outputs to the declared return type when possible.
 - `otel_span_end(span, attributes={})`: finish a span
 - `otel_flush()`: flush pending telemetry exports
 - `metrics_snapshot()`: return interpreter counters such as AI requests, tool calls, tasks, and HTTP traffic
+- `cache_stats()`: return cache entry count together with cache-related metrics
+- `cache_clear()`: clear cached AI results and return the number of removed entries
 - `pi`, `e`: math constants exposed as top-level values
 
 Bundled modules:
 
 - `std/web`: AI helpers for HTML rendering, component fragments, app shells, and HTML response construction
 - `std/telemetry`: AI helpers for summarizing runtime metrics
+- `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
 
 ## AI Function Protocol
 
@@ -367,6 +375,7 @@ Behavior:
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
+- `@cache true` memoizes successful AI function and macro results for identical inputs and directives.
 - Self-recursive helper calls are rejected and fed back into the next model step through tool history.
 - Repeating the same rejected helper call now fails fast instead of burning more model steps.
 - Helper calls are limited by `--max-steps`.

@@ -10,7 +10,7 @@
 - Supports module loading with `import "./module.vibe" as module` and `from "./module.vibe" import helper`.
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
-- Supports leading AI directives such as `@temperature`, `@max_tokens`, `@max_steps`, `@tools`, and `@deny_tools` inside function and macro bodies.
+- Supports leading AI directives such as `@temperature`, `@max_tokens`, `@max_steps`, `@cache`, `@tools`, and `@deny_tools` inside function and macro bodies.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
@@ -20,7 +20,7 @@
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
 - Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
-- Adds first-class sets, dict helpers, list sorting and deduping helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
+- Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, and runtime metrics.
 - Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
@@ -28,6 +28,7 @@
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 - Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
+- Ships standard-library modules written in vibelang itself, including `std/web`, `std/telemetry`, and `std/ai`.
 
 ## Quick Start
 
@@ -117,6 +118,7 @@ AI bodies can also declare execution controls up front:
 def slugify(title: string) -> string:
     @temperature 0
     @max_steps 4
+    @cache true
     @tools lower, trim, replace, regex_replace
     Convert ${title} into a lowercase URL slug.
     Replace whitespace runs with "-".
@@ -222,6 +224,19 @@ channel_send(slow, "background")
 packet = channel_select([fast, slow], timeout_ms=10)
 print(packet["channel"] == slow)
 print(packet["value"])
+```
+
+Explicit AI caching is useful for expensive deterministic helpers:
+
+```python
+def normalize_city(city: string) -> string:
+    @temperature 0
+    @cache true
+    Return ${city} in uppercase letters.
+
+print(normalize_city("berlin"))
+print(normalize_city("berlin"))
+print(cache_stats()["entries"])
 ```
 
 HTTP handlers can also be AI-backed:

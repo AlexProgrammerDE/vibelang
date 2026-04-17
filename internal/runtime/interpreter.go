@@ -39,6 +39,7 @@ type Interpreter struct {
 	promptHelpers map[string]Callable
 	promptCache   map[string]*compiledPrompt
 	moduleCache   map[string]*loadedModule
+	aiCache       map[string]any
 	loadingModule map[string]bool
 	sockets       map[string]*socketHandle
 	tasks         map[string]*taskHandle
@@ -97,6 +98,7 @@ func NewInterpreter(config Config) *Interpreter {
 		promptHelpers: make(map[string]Callable),
 		promptCache:   make(map[string]*compiledPrompt),
 		moduleCache:   make(map[string]*loadedModule),
+		aiCache:       make(map[string]any),
 		loadingModule: make(map[string]bool),
 		sockets:       make(map[string]*socketHandle),
 		tasks:         make(map[string]*taskHandle),
@@ -880,6 +882,10 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 	if depth >= i.maxCallDepth {
 		return nil, fmt.Errorf("%s exceeded the maximum AI call depth of %d", function.Name(), i.maxCallDepth)
 	}
+	cacheKey, cacheHit := i.maybeLookupAICache(function, instructions, args, directives)
+	if cacheHit {
+		return cacheKey, nil
+	}
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs(excludeTool, directives)
@@ -919,6 +925,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			if err != nil {
 				return nil, fmt.Errorf("%s returned a value that does not match %s: %w", function.Name(), function.Def.ReturnType.String(), err)
 			}
+			i.maybeStoreAICache(cacheKey, directives, value)
 			i.incrementMetric("ai_returns_total", 1)
 			i.tracef("%s returning %s", function.Name(), jsonString(value))
 			return value, nil

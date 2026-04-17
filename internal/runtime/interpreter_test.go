@@ -621,6 +621,85 @@ print(normalize("berlin"))
 	}
 }
 
+func TestInterpreterAICacheDirectiveMemoizesResults(t *testing.T) {
+	source := `def normalize(city: string) -> string:
+    @temperature 0
+    @cache true
+    Return ${city} in uppercase.
+
+print(normalize("berlin"))
+print(normalize("berlin"))
+print(cache_stats()["entries"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"BERLIN"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN\nBERLIN\n1\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN\nBERLIN\n1\n", stdout.String())
+	}
+	if len(client.prompts) != 1 {
+		t.Fatalf("expected 1 model prompt with cache hit, got %d", len(client.prompts))
+	}
+}
+
+func TestInterpreterCacheClearRemovesMemoizedEntries(t *testing.T) {
+	source := `def normalize(city: string) -> string:
+    @temperature 0
+    @cache true
+    Return ${city} in uppercase.
+
+print(normalize("berlin"))
+print(cache_clear())
+print(normalize("berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"BERLIN"}`,
+			`{"action":"return","value":"BERLIN"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN\n1\nBERLIN\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN\n1\nBERLIN\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected cache clear to force a second model prompt, got %d", len(client.prompts))
+	}
+}
+
 func TestInterpreterTryExceptFinally(t *testing.T) {
 	source := `try:
     fail("boom")
@@ -682,6 +761,57 @@ print(regex_replace("[0-9]+", "go123lang", "-"))
 	}, "\n")
 	if stdout.String() != want {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterCollectionHelpers(t *testing.T) {
+	source := `pairs = dict_items({"b": 2, "a": 1})
+indexed = enumerate(["alpha", "beta"], start=3)
+paired = zip(["a", "b", "c"], [1, 2])
+
+print(json(pairs))
+print(json(indexed))
+print(json(paired))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		`[{"key":"a","value":1},{"key":"b","value":2}]`,
+		`[{"index":3,"value":"alpha"},{"index":4,"value":"beta"}]`,
+		`[["a",1],["b",2]]`,
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterZipStrictModeErrorsOnLengthMismatch(t *testing.T) {
+	source := `print(zip([1, 2], [3], strict=true))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	interpreter := NewInterpreter(Config{})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if !strings.Contains(err.Error(), "zip strict mode requires lists of equal length") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

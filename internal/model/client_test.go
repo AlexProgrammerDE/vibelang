@@ -77,6 +77,48 @@ func TestOllamaClientUsesChatAPIWithSchema(t *testing.T) {
 	}
 }
 
+func TestOllamaClientPreservesExplicitZeroTemperature(t *testing.T) {
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode returned error: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":{"content":"{\"action\":\"return\",\"value\":42}"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Provider:       "ollama",
+		Endpoint:       server.URL,
+		Model:          "gemma4",
+		Temperature:    0,
+		HasTemperature: true,
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	if _, err := client.Generate(context.Background(), Request{
+		System: "system prompt",
+		Prompt: "user prompt",
+	}); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	options, ok := payload["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options, got %#v", payload["options"])
+	}
+	if options["temperature"] != float64(0) {
+		t.Fatalf("expected explicit zero temperature, got %#v", options["temperature"])
+	}
+}
+
 func TestLlamaCPPClientUsesChatCompletionsResponseFormat(t *testing.T) {
 	var payload map[string]any
 
@@ -204,5 +246,44 @@ func TestOpenAICompatibleClientUsesChatCompletionsWithSchema(t *testing.T) {
 	}
 	if payload["temperature"] != float64(0) || payload["max_tokens"] != float64(24) {
 		t.Fatalf("expected request overrides in openai-compatible payload, got %#v", payload)
+	}
+}
+
+func TestGroqClientClampsZeroTemperature(t *testing.T) {
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode returned error: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"action\":\"return\",\"value\":\"ok\"}"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Provider: "groq",
+		Endpoint: server.URL,
+		Model:    "openai/gpt-oss-20b",
+		APIKey:   "secret-token",
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	zero := 0.0
+	if _, err := client.Generate(context.Background(), Request{
+		System:      "system prompt",
+		Prompt:      "user prompt",
+		Temperature: &zero,
+	}); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if payload["temperature"] != float64(1e-8) {
+		t.Fatalf("expected groq zero temperature to be clamped to 1e-8, got %#v", payload["temperature"])
 	}
 }
