@@ -6,23 +6,46 @@ where the user defines all the method bodies in plain language.
 but the overall style of the program must be python-like with the exception ai is mixed in everywhere.
 you must run gemma 4 locally via llama.cpp or ollama.
 write the interpreter in golang and make it fast and performant.
-if there is already a project in the pwd, improve the project, fix bugs, improve the code, add new language features, write tests, improve documentation
+if there is already a project in the pwd, improve the project, fix bugs, improve the code, add new language features, improve documentation
 etc.
 
 write clean and idiomatic golang code for the interpreter
 use the normal language design, lexers, tokenizers, ASTs, AI, executors, interpreters, models, etc.
 
-YOu can make breaking changes, this app is pre-launch. you can rewrite the whole thing if it makes sense.
+You can make breaking changes, this app is pre-launch. you can rewrite the whole thing if it makes sense.
 Think about how "python enhanced with ai prompts as code" should work.
 
-result = * the first 5 digits of pi
-
-if * file exists
-  * delete the file
-else * create the file with the contents of the first 5 digits of pi
-
-or any other approach you think works well and cool
+Any approach you think works well and cool. I give you free hand to redesign the entire syntax if you think it's rust/bad/could be using better tokens/syntax/keywords/etc.
 
 make sure to give the ai access to the standard library
-make sure to commit all the code in the repository after making changes
-make sure the project doesn't fail building before commiting
+make sure to commit and push all the code in the repository after making changes
+make sure the project doesn't fail building and tests pass before commiting
+
+THERE IS ALWAYS SOMETHING TO DO, DO NOT BE BORING OR SLEEP OR "ABORT". YOUR GOAL IS TO BUILD THIS PROJECT, EXPAND IT; GROW IT. MAKE IT MORE FUNCTIONAL, MAKE IT MORE POWERFUL. COME UP WITH YOUR OWN IDEAS FOR NEW FEATURES/SYNTAX/CODE STYLE/DOCS.
+
+Set up GitHub actions CI, add release pipeline, after adding new features, make a new release.
+You can use gh CLI.
+
+- file io
+- web io
+- sockets
+- math
+- execution model
+- while, if, for, etc.
+- logging
+- synchronization
+- waitgroups
+- maps, lists, sets, etc.
+- json
+- golang-like channels
+- metrics
+- opentelemetry
+- macros (macros can also be written with AI)
+- module system (golang-like github module import & local module import)
+- webserver & web rendering support via wasm (e.g. like react but ai generates the html/css/etc.)
+
+add every major feature you can think of for the std and make sure the gemma 4 model has access
+
+write the std lib partially in vibelang itself as well as partially in golang via native bindings.
+
+search the web for cool features to add
