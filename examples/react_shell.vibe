@@ -1,0 +1,11 @@
+import "std/react" as react
+
+def app(request: dict) -> dict:
+    Call react.respond_react_shell with:
+    - title "vibelang react shell"
+    - route ${request["path"]}
+    - state {"path": request["path"], "user": {"name": "Ada"}, "notifications": 3}
+    - brief "A React-like dashboard shell with one interactive root, semantic structure, and a tiny client-side state layer."
+    - model_endpoint "/api/llm"
+    - accent "ember"
+    - theme "paper"

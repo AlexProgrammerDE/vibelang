@@ -1,0 +1,10 @@
+values = [1, 2, 3, 4, 5]
+groups = batched(values, 2)
+
+print(all([true, 1, "Ada"]))
+print(any([false, "", "vibe"]))
+print(json(reversed(values)))
+print(reversed("Ada"))
+print(json(flatten(groups)))
+print(json(dict_delete({"name": "Ada", "role": "builder"}, "role")))
+print(json(set_values(set_symmetric_difference(set([1, 2, 3]), set([3, 4])))))

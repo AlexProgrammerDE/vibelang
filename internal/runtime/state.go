@@ -195,14 +195,17 @@ func (m *mutexHandle) Unlock() error {
 
 type safeWaitGroup struct {
 	mu      sync.Mutex
-	cond    *sync.Cond
 	counter int
 	waiting bool
+	zero    chan struct{}
 }
 
 func newSafeWaitGroup() *safeWaitGroup {
-	wg := &safeWaitGroup{}
-	wg.cond = sync.NewCond(&wg.mu)
+	zero := make(chan struct{})
+	close(zero)
+	wg := &safeWaitGroup{
+		zero: zero,
+	}
 	return wg
 }
 
@@ -219,9 +222,16 @@ func (w *safeWaitGroup) Add(delta int) (int, error) {
 		return w.counter, fmt.Errorf("wait group counter cannot go negative")
 	}
 
+	if w.counter == 0 && next > 0 {
+		w.zero = make(chan struct{})
+	}
 	w.counter = next
 	if w.counter == 0 {
-		w.cond.Broadcast()
+		select {
+		case <-w.zero:
+		default:
+			close(w.zero)
+		}
 	}
 	return w.counter, nil
 }
@@ -230,31 +240,25 @@ func (w *safeWaitGroup) Done() (int, error) {
 	return w.Add(-1)
 }
 
-func (w *safeWaitGroup) wait() {
+func (w *safeWaitGroup) Wait(timeout time.Duration) bool {
 	w.mu.Lock()
 	w.waiting = true
-	for w.counter > 0 {
-		w.cond.Wait()
-	}
-	w.mu.Unlock()
-}
-
-func (w *safeWaitGroup) Wait(timeout time.Duration) bool {
-	if timeout < 0 {
-		w.wait()
+	if w.counter == 0 {
+		w.mu.Unlock()
 		return true
 	}
+	zero := w.zero
+	w.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		w.wait()
-		close(done)
-	}()
+	if timeout < 0 {
+		<-zero
+		return true
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-done:
+	case <-zero:
 		return true
 	case <-timer.C:
 		return false

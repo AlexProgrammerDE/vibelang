@@ -123,6 +123,16 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic collections example
+        run: |
+          output="$(go run ./cmd/vibelang examples/collections.vibe)"
+          expected=$'true\ntrue\n[5,4,3,2,1]\nadA\n[1,2,3,4,5]\n{"name":"Ada"}\n[1,2,4]\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected collections.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Run deterministic cookie example
         run: |
           output="$(go run ./cmd/vibelang examples/cookies.vibe)"

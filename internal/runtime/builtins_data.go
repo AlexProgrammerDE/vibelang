@@ -161,10 +161,35 @@ func registerDataBuiltins(interpreter *Interpreter) {
 		bindArgs:   true,
 		promptSafe: true,
 	})
+	registerBuiltin(interpreter, promptToolBuiltin("all", builtinAll, "bool", "Return true when every value in the iterable is truthy. Empty iterables return true.", ast.Param{Name: "values"}))
+	registerBuiltin(interpreter, promptToolBuiltin("any", builtinAny, "bool", "Return true when any value in the iterable is truthy. Empty iterables return false.", ast.Param{Name: "values"}))
+	registerBuiltin(interpreter, promptToolBuiltin("reversed", builtinReversed, "any", "Return a reversed copy of a list or string.", ast.Param{Name: "values"}))
+	registerBuiltin(interpreter, promptToolBuiltin("flatten", builtinFlatten, "list", "Flatten one level of nested iterables from a list into one new list.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "batched",
+		call: builtinBatched,
+		tool: &ToolSpec{
+			Name:       "batched",
+			ReturnType: ast.TypeRef{Expr: "list[list]"},
+			Body:       "Split a list into consecutive batches of size n. The final batch may be shorter unless strict is true.",
+			Params: []ast.Param{
+				{Name: "values", Type: ast.TypeRef{Expr: "list"}},
+				{Name: "size", Type: ast.TypeRef{Expr: "int"}},
+				{Name: "strict", Type: ast.TypeRef{Expr: "bool"}, DefaultText: "false"},
+			},
+		},
+		defaults: map[string]any{
+			"strict": false,
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, promptToolBuiltin("unique", builtinUnique, "list", "Return a new list with duplicate values removed while preserving the first occurrence of each value.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("sum", builtinSum, "any", "Return the numeric sum of a list of ints or floats.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("min", builtinMin, "any", "Return the smallest value in a non-empty list.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("max", builtinMax, "any", "Return the largest value in a non-empty list.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("dict_delete", builtinDictDelete, "dict", "Return a new dict without the given key. Missing keys are ignored.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}, ast.Param{Name: "key"}))
+	registerBuiltin(interpreter, promptToolBuiltin("set_symmetric_difference", builtinSetSymmetricDifference, "set", "Return the symmetric difference of two sets.", ast.Param{Name: "left", Type: ast.TypeRef{Expr: "set"}}, ast.Param{Name: "right", Type: ast.TypeRef{Expr: "set"}}))
 }
 
 func builtinJSONParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
@@ -693,6 +718,121 @@ func builtinSorted(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	return result, nil
 }
 
+func builtinAll(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("all", args, 1); err != nil {
+		return nil, err
+	}
+	values, err := iterableValues(args[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, value := range values {
+		if !truthy(value) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func builtinAny(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("any", args, 1); err != nil {
+		return nil, err
+	}
+	values, err := iterableValues(args[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, value := range values {
+		if truthy(value) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func builtinReversed(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("reversed", args, 1); err != nil {
+		return nil, err
+	}
+	switch value := args[0].(type) {
+	case string:
+		runes := []rune(value)
+		result := make([]rune, len(runes))
+		for index := range runes {
+			result[len(runes)-1-index] = runes[index]
+		}
+		return string(result), nil
+	case []any:
+		result := make([]any, len(value))
+		for index := range value {
+			result[len(value)-1-index] = cloneValue(value[index])
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("reversed expects a list or string")
+	}
+}
+
+func builtinFlatten(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("flatten", args, 1); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("flatten expects a list")
+	}
+	result := make([]any, 0, len(values))
+	for _, item := range values {
+		nested, err := iterableValues(item)
+		if err != nil {
+			return nil, fmt.Errorf("flatten expects each item to be iterable: %w", err)
+		}
+		for _, nestedItem := range nested {
+			result = append(result, cloneValue(nestedItem))
+		}
+	}
+	return result, nil
+}
+
+func builtinBatched(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("batched", args, 3); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("batched expects a list")
+	}
+	size, err := requireInt("batched", args[1], "size")
+	if err != nil {
+		return nil, err
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("batched size must be greater than zero")
+	}
+	strict, err := requireBool("batched", args[2], "strict")
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]any, 0, (len(values)+int(size)-1)/int(size))
+	for start := 0; start < len(values); start += int(size) {
+		end := start + int(size)
+		if end > len(values) {
+			if strict {
+				return nil, fmt.Errorf("batched strict mode requires the input length to be divisible by size")
+			}
+			end = len(values)
+		}
+
+		batch := make([]any, 0, end-start)
+		for _, item := range values[start:end] {
+			batch = append(batch, cloneValue(item))
+		}
+		result = append(result, batch)
+	}
+	return result, nil
+}
+
 func builtinUnique(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("unique", args, 1); err != nil {
 		return nil, err
@@ -753,6 +893,43 @@ func builtinMin(_ context.Context, _ *Interpreter, args []any) (any, error) {
 
 func builtinMax(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	return builtinExtrema("max", args, func(comparison int) bool { return comparison > 0 })
+}
+
+func builtinDictDelete(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dict_delete", args, 2); err != nil {
+		return nil, err
+	}
+	dict, ok := asMap(args[0])
+	if !ok {
+		return nil, fmt.Errorf("dict_delete expects a dict")
+	}
+	result := cloneValue(dict).(map[string]any)
+	delete(result, stringify(args[1]))
+	return result, nil
+}
+
+func builtinSetSymmetricDifference(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("set_symmetric_difference", args, 2); err != nil {
+		return nil, err
+	}
+	left, ok := asSet(args[0])
+	if !ok {
+		return nil, fmt.Errorf("set_symmetric_difference expects left to be a set")
+	}
+	right, ok := asSet(args[1])
+	if !ok {
+		return nil, fmt.Errorf("set_symmetric_difference expects right to be a set")
+	}
+
+	result := left.Clone()
+	for _, value := range right.Values() {
+		if result.Has(value) {
+			result = result.Remove(value)
+			continue
+		}
+		result = result.Add(value)
+	}
+	return result, nil
 }
 
 func builtinExtrema(name string, args []any, choose func(int) bool) (any, error) {

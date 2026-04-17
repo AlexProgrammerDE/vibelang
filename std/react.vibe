@@ -1,0 +1,40 @@
+default_theme = "paper"
+
+def render_react_component(name: string, props: dict, brief: string, state: dict = {}, accent: string = "ember", theme: string = default_theme) -> string:
+    @temperature 0.1
+    @max_tokens 1400
+    @tools json_pretty
+    Return one HTML fragment that feels like a React component named ${name}.
+    The component props are ${json_pretty(props)}.
+    The optional local state is ${json_pretty(state)}.
+    The product brief is ${brief}.
+    Use semantic HTML, stable data-* hooks for hydration, accessible labels, and a ${theme} palette with restrained ${accent} accents.
+    Do not return a full document.
+
+def render_react_shell(title: string, route: string, state: dict, brief: string, model_endpoint: string = "", mount_id: string = "app", accent: string = "ember", theme: string = default_theme) -> string:
+    @temperature 0.12
+    @max_tokens 2200
+    @tools json_pretty
+    Return a complete HTML5 document for a React-like route shell.
+    The app title is ${title}.
+    The route is ${route}.
+    The initial state JSON is ${json_pretty(state)}.
+    The product brief is ${brief}.
+    The optional host model endpoint is ${model_endpoint}.
+    The root mount id is ${mount_id}.
+    Build one obvious root element with id ${mount_id} and data-route ${route}.
+    Inline the CSS and JavaScript.
+    The JavaScript should feel like a tiny React-style runtime:
+    - read window.__VIBE_STATE__
+    - keep one mutable state object
+    - render through small template functions
+    - use event delegation for interactions
+    - update only the necessary DOM subtree when state changes
+    If model_endpoint is not empty, expose a small hostModel(prompt) helper that POSTs JSON to that endpoint.
+    Keep the document dependency-free, mobile-friendly, and readable.
+
+def respond_react_shell(title: string, route: string, state: dict, brief: string, status: int = 200, model_endpoint: string = "", mount_id: string = "app", accent: string = "ember", theme: string = default_theme) -> dict{status: int, headers: dict[string, string], html: string}:
+    @temperature 0
+    @tools render_react_shell
+    Call render_react_shell with ${title}, ${route}, ${state}, ${brief}, ${model_endpoint}, ${mount_id}, ${accent}, and ${theme}.
+    Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.

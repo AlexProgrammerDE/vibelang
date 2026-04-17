@@ -400,12 +400,14 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.
 - Run [examples/data_tools.vibe](../examples/data_tools.vibe) to see deterministic CSV and time helpers.
+- Run [examples/collections.vibe](../examples/collections.vibe) to see Python-shaped collection helpers such as `all`, `any`, `reversed`, `flatten`, and `batched`.
 - Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
 - Run [examples/http_static.vibe](../examples/http_static.vibe) to see deterministic static asset serving with `application/wasm` detection.
 - Run [examples/wasm_shell.vibe](../examples/wasm_shell.vibe) to see a wasm-oriented `std/web` route shell.
+- Run [examples/react_shell.vibe](../examples/react_shell.vibe) to see the bundled `std/react` module generate a React-like AI route shell.
 - Run [examples/http_routes.vibe](../examples/http_routes.vibe) to see ordered route tables and route params for AI-backed servers.
 - Run [examples/model_routing.vibe](../examples/model_routing.vibe) to see one function route itself to a different model backend.
 - Run [examples/routes.vibe](../examples/routes.vibe) to validate deterministic route matching without needing a model.

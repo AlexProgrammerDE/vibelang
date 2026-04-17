@@ -2571,6 +2571,39 @@ print(contains(yaml_stringify(payload), "name: Ada"))
 	}
 }
 
+func TestInterpreterProvidesExtendedCollectionHelpers(t *testing.T) {
+	source := `print(all([true, 1, "Ada"]))
+print(any([false, "", "vibe"]))
+print(json(reversed([1, 2, 3])))
+print(reversed("Ada"))
+print(json(flatten([[1, 2], [], [3, 4]])))
+print(json(batched([1, 2, 3, 4, 5], 2)))
+print(json(dict_delete({"name": "Ada", "role": "builder"}, "role")))
+print(json(set_values(set_symmetric_difference(set([1, 2, 3]), set([3, 4])))))
+
+try:
+    batched([1, 2, 3], 2, true)
+except err:
+    print(contains(err, "divisible"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "true\ntrue\n[3,2,1]\nadA\n[1,2,3,4]\n[[1,2],[3,4],[5]]\n{\"name\":\"Ada\"}\n[1,2,4]\ntrue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterProvidesCookieHelpers(t *testing.T) {
 	source := `cookie = cookie_build("session", "abc123", {"path": "/", "http_only": true, "same_site": "lax", "max_age": 60, "secure": true})
 parsed = cookie_parse("theme=dark; session=abc123")

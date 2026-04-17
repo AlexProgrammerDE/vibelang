@@ -294,13 +294,20 @@ Notes:
 - `set_union(left, right)`: union of two sets
 - `set_intersection(left, right)`: intersection of two sets
 - `set_difference(left, right)`: difference of two sets
+- `set_symmetric_difference(left, right)`: values present in exactly one of two sets
 - `dict_has(dict, key)`: return whether a dict contains a key
 - `dict_get(dict, key, default=none)`: fetch a dict value with a fallback
 - `dict_items(dict)`: return sorted key/value entries as `{"key": ..., "value": ...}` dictionaries
 - `dict_set(dict, key, value)`: return a new dict with one assignment applied
 - `dict_merge(left, right)`: merge two dicts with right-hand keys winning
+- `dict_delete(dict, key)`: return a new dict without one key
 - `enumerate(values, start=0)`: return a list of `{"index": ..., "value": ...}` dictionaries
 - `zip(left, right, strict=false)`: pair two lists into a list of two-item lists
+- `all(values)`: return true when every value in an iterable is truthy
+- `any(values)`: return true when any value in an iterable is truthy
+- `reversed(values)`: return a reversed copy of a list or string
+- `flatten(values)`: flatten one level of nested iterables from a list
+- `batched(values, size, strict=false)`: split a list into consecutive batches
 - `sorted(values, descending=false)`: return a sorted copy of a list
 - `unique(values)`: remove duplicates while preserving first occurrence order
 - `sum(values)`: sum a list of numeric values
@@ -426,6 +433,7 @@ HTTP handler response notes:
 Bundled modules:
 
 - `std/web`: AI helpers for HTML rendering, component fragments, app shells, wasm shells, typed HTML or JSON response construction, and SSE wrappers
+- `std/react`: AI helpers for React-like component fragments and route shells
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/runtime`: AI helpers for summarizing live Go runtime snapshots
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
