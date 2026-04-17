@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/coder/websocket"
+
 	"vibelang/internal/ast"
 )
 
@@ -94,6 +96,81 @@ func registerExtendedBuiltins(interpreter *Interpreter) {
 			"body":       nil,
 			"headers":    map[string]any{},
 			"timeout_ms": int64(10000),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "websocket_dial",
+		call: builtinWebSocketDial,
+		tool: &ToolSpec{
+			Name:       "websocket_dial",
+			ReturnType: ast.TypeRef{Expr: "string"},
+			Body:       "Connect to a websocket URL and return an opaque websocket handle string.",
+			Params: []ast.Param{
+				{Name: "url", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "headers", Type: ast.TypeRef{Expr: "dict[string, string]"}, DefaultText: "{}"},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "5000"},
+			},
+		},
+		defaults: map[string]any{
+			"headers":    map[string]any{},
+			"timeout_ms": int64(5000),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "websocket_send",
+		call: builtinWebSocketSend,
+		tool: &ToolSpec{
+			Name:       "websocket_send",
+			ReturnType: ast.TypeRef{Expr: "bool"},
+			Body:       "Send one websocket message and return true when it succeeds.",
+			Params: []ast.Param{
+				{Name: "handle", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "data", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "message_type", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"text\""},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "5000"},
+			},
+		},
+		defaults: map[string]any{
+			"message_type": "text",
+			"timeout_ms":   int64(5000),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "websocket_recv",
+		call: builtinWebSocketRecv,
+		tool: &ToolSpec{
+			Name:       "websocket_recv",
+			ReturnType: ast.TypeRef{Expr: "dict{ok: bool, timeout: bool, closed: bool, message_type: string, data: string, close_code: int}"},
+			Body:       "Receive one websocket message and return ok, timeout, closed, message_type, data, and close_code fields.",
+			Params: []ast.Param{
+				{Name: "handle", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "-1"},
+			},
+		},
+		defaults: map[string]any{
+			"timeout_ms": int64(-1),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "websocket_close",
+		call: builtinWebSocketClose,
+		tool: &ToolSpec{
+			Name:       "websocket_close",
+			ReturnType: ast.TypeRef{Expr: "bool"},
+			Body:       "Close a websocket handle with an optional close code and reason. Return true when a handle was closed.",
+			Params: []ast.Param{
+				{Name: "handle", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "code", Type: ast.TypeRef{Expr: "int"}, DefaultText: "1000"},
+				{Name: "reason", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"\""},
+			},
+		},
+		defaults: map[string]any{
+			"code":   int64(1000),
+			"reason": "",
 		},
 		bindArgs: true,
 	})
@@ -481,6 +558,165 @@ func doHTTPRequest(ctx context.Context, url, method, body string, headers map[st
 	}, nil
 }
 
+func builtinWebSocketDial(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("websocket_dial", args, 3); err != nil {
+		return nil, err
+	}
+	url, err := requireString("websocket_dial", args[0], "url")
+	if err != nil {
+		return nil, err
+	}
+	headers, err := requireStringMap("websocket_dial", args[1], "headers")
+	if err != nil {
+		return nil, err
+	}
+	timeoutMS, err := requireInt("websocket_dial", args[2], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+
+	dialCtx, cancel := timeoutContext(timeoutMS)
+	defer cancel()
+
+	conn, _, err := ws.Dial(dialCtx, url, &ws.DialOptions{
+		HTTPHeader: stringMapToHTTPHeader(headers),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	handleID := interpreter.nextHandle("websocket")
+	interpreter.storeWebSocket(handleID, &websocketHandle{conn: conn})
+	interpreter.incrementMetric("websocket_connections_opened_total", 1)
+	return handleID, nil
+}
+
+func builtinWebSocketSend(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("websocket_send", args, 4); err != nil {
+		return nil, err
+	}
+	handleID, err := requireString("websocket_send", args[0], "handle")
+	if err != nil {
+		return nil, err
+	}
+	data, err := requireString("websocket_send", args[1], "data")
+	if err != nil {
+		return nil, err
+	}
+	rawType, err := requireString("websocket_send", args[2], "message_type")
+	if err != nil {
+		return nil, err
+	}
+	timeoutMS, err := requireInt("websocket_send", args[3], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+	handle, err := interpreter.lookupWebSocket(handleID)
+	if err != nil {
+		return nil, err
+	}
+	messageType, err := websocketMessageType(rawType)
+	if err != nil {
+		return nil, err
+	}
+
+	writeCtx, cancel := timeoutContext(timeoutMS)
+	defer cancel()
+	if err := handle.conn.Write(writeCtx, messageType, []byte(data)); err != nil {
+		if ws.CloseStatus(err) != -1 {
+			return false, nil
+		}
+		return nil, err
+	}
+	interpreter.incrementMetric("websocket_messages_sent_total", 1)
+	return true, nil
+}
+
+func builtinWebSocketRecv(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("websocket_recv", args, 2); err != nil {
+		return nil, err
+	}
+	handleID, err := requireString("websocket_recv", args[0], "handle")
+	if err != nil {
+		return nil, err
+	}
+	timeoutMS, err := requireInt("websocket_recv", args[1], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+	handle, err := interpreter.lookupWebSocket(handleID)
+	if err != nil {
+		return nil, err
+	}
+
+	readCtx, cancel := timeoutContext(timeoutMS)
+	defer cancel()
+	messageType, payload, err := handle.conn.Read(readCtx)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return map[string]any{
+				"ok":           false,
+				"timeout":      true,
+				"closed":       false,
+				"message_type": "",
+				"data":         "",
+				"close_code":   int64(0),
+			}, nil
+		}
+		if status := ws.CloseStatus(err); status != -1 {
+			return map[string]any{
+				"ok":           false,
+				"timeout":      false,
+				"closed":       true,
+				"message_type": "",
+				"data":         "",
+				"close_code":   int64(status),
+			}, nil
+		}
+		return nil, err
+	}
+
+	interpreter.incrementMetric("websocket_messages_received_total", 1)
+	return map[string]any{
+		"ok":           true,
+		"timeout":      false,
+		"closed":       false,
+		"message_type": websocketMessageTypeName(messageType),
+		"data":         string(payload),
+		"close_code":   int64(0),
+	}, nil
+}
+
+func builtinWebSocketClose(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("websocket_close", args, 3); err != nil {
+		return nil, err
+	}
+	handleID, err := requireString("websocket_close", args[0], "handle")
+	if err != nil {
+		return nil, err
+	}
+	code, err := requireInt("websocket_close", args[1], "code")
+	if err != nil {
+		return nil, err
+	}
+	reason, err := requireString("websocket_close", args[2], "reason")
+	if err != nil {
+		return nil, err
+	}
+	handle, ok := interpreter.closeWebSocket(handleID)
+	if !ok {
+		return false, nil
+	}
+	if err := handle.conn.Close(ws.StatusCode(code), reason); err != nil {
+		if ws.CloseStatus(err) == -1 && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "closed network connection") {
+			handle.conn.CloseNow()
+			return nil, err
+		}
+	}
+	interpreter.incrementMetric("websocket_connections_closed_total", 1)
+	return true, nil
+}
+
 func builtinRunProcess(ctx context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("run_process", args, 6); err != nil {
 		return nil, err
@@ -861,6 +1097,41 @@ func flattenHTTPHeaders(headers http.Header) map[string]any {
 		flattened[key] = strings.Join(values, ", ")
 	}
 	return flattened
+}
+
+func timeoutContext(timeoutMS int64) (context.Context, context.CancelFunc) {
+	if timeoutMS < 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), waitTimeout(timeoutMS))
+}
+
+func stringMapToHTTPHeader(headers map[string]string) http.Header {
+	httpHeaders := make(http.Header, len(headers))
+	for key, value := range headers {
+		httpHeaders.Set(key, value)
+	}
+	return httpHeaders
+}
+
+func websocketMessageType(raw string) (ws.MessageType, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "text":
+		return ws.MessageText, nil
+	case "binary":
+		return ws.MessageBinary, nil
+	default:
+		return 0, fmt.Errorf("unsupported websocket message_type %q", raw)
+	}
+}
+
+func websocketMessageTypeName(kind ws.MessageType) string {
+	switch kind {
+	case ws.MessageBinary:
+		return "binary"
+	default:
+		return "text"
+	}
 }
 
 func mergedCommandEnv(extra map[string]string) []string {

@@ -26,9 +26,9 @@
 - Rejects direct and indirect recursive AI helper re-entry before it spirals into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
 - Adds opt-in AI result caching, CSV/YAML/TOML helpers, first-class sets, richer dict and list helpers, Python-inspired collection helpers such as `all`, `any`, `reversed`, `flatten`, and `batched`, Markdown rendering, route construction, time parsing and formatting, UUID generation, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
-- Exposes a broader standard library for AI execution, including filesystem, JSON, YAML, path, string, cookies, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
+- Exposes a broader standard library for AI execution, including filesystem, JSON, YAML, path, string, cookies, environment, globbing, HTTP, WebSocket and TCP clients, TCP listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
 - Lets one AI body route itself to a different backend with `@provider`, `@model`, `@endpoint`, `@api_key_env`, and `@timeout_ms`, so local Gemma can coexist with remote OpenAI-compatible calls in one program.
-- Starts AI-backed HTTP servers, including ordered route tables and Server-Sent Event streaming backed by native channel handles.
+- Starts AI-backed HTTP servers, including ordered route tables, WebSocket upgrades, and Server-Sent Event streaming backed by native channel handles.
 - Serves deterministic static frontend assets, including HTML, JS, CSS, JSON, SVG, and `.wasm`, with correct HTTP content types through `http_static_response` and `mime_type`.
 - Exposes deterministic tool introspection so programs can inspect the live helper catalog through `tool_catalog` and `tool_describe`.
 - Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
@@ -378,6 +378,26 @@ print(response["headers"]["Content-Type"])
 http_server_stop(server["handle"])
 ```
 
+HTTP handlers can also upgrade into AI-backed WebSocket sessions:
+
+```python
+def upgrade(request: dict) -> dict:
+    Return exactly {"websocket": "chat"}.
+
+def chat(session: dict) -> none:
+    Receive one websocket message from session["handle"].
+    Reply with the uppercased text.
+    Close the websocket.
+
+server = http_serve("127.0.0.1:0", upgrade)
+client = websocket_dial("ws://" + server["address"] + "/chat")
+websocket_send(client, "ping")
+packet = websocket_recv(client, timeout_ms=1000)
+print(packet["data"])
+websocket_close(client)
+http_server_stop(server["handle"])
+```
+
 Ordered route tables keep larger AI-backed services predictable:
 
 ```python
@@ -490,9 +510,9 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `markdown_to_html`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`, `cookie_parse`, `cookie_build`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `time_parse`, `time_format`, `time_add`, `time_diff`, `duration_parse`, `uuid_v4`, `uuid_v7`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
-- Network: `http_request`, `http_request_json`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
+- Network: `http_request`, `http_request_json`, `websocket_dial`, `websocket_send`, `websocket_recv`, `websocket_close`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
-- Services: `route_match`, `route_build`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`
+- Services: `route_match`, `route_build`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`, plus HTTP response-mode WebSocket upgrades through `{"websocket": ...}`
 - Runtime introspection: `tool_catalog`, `tool_describe`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`, `runtime_metrics`, `runtime_metric`
 

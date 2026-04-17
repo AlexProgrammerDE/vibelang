@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	ws "github.com/coder/websocket"
+
 	"vibelang/internal/ast"
 )
 
@@ -27,15 +29,20 @@ type httpRoute struct {
 }
 
 type httpResponsePayload struct {
-	Status  int
-	Headers map[string]string
-	Body    string
-	SSE     *httpSSEPayload
+	Status    int
+	Headers   map[string]string
+	Body      string
+	SSE       *httpSSEPayload
+	WebSocket *httpWebSocketPayload
 }
 
 type httpSSEPayload struct {
 	Events  []sseEvent
 	Channel *channelHandle
+}
+
+type httpWebSocketPayload struct {
+	Handler Callable
 }
 
 type sseEvent struct {
@@ -700,7 +707,7 @@ func (i *Interpreter) serveAIHTTP(writer http.ResponseWriter, request *http.Requ
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	i.writeFormattedHTTPResponse(request.Context(), writer, response)
+	i.writeFormattedHTTPResponse(request.Context(), writer, request, payload, response)
 }
 
 func (i *Interpreter) serveAIHTTPRoutes(writer http.ResponseWriter, request *http.Request, routes []httpRoute, fallback Callable) {
@@ -738,7 +745,7 @@ func (i *Interpreter) serveAIHTTPRoutes(writer http.ResponseWriter, request *htt
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		i.writeFormattedHTTPResponse(request.Context(), writer, response)
+		i.writeFormattedHTTPResponse(request.Context(), writer, request, payloadWithRoute, response)
 		return
 	}
 
@@ -756,7 +763,7 @@ func (i *Interpreter) serveAIHTTPRoutes(writer http.ResponseWriter, request *htt
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		i.writeFormattedHTTPResponse(request.Context(), writer, response)
+		i.writeFormattedHTTPResponse(request.Context(), writer, request, payloadWithRoute, response)
 		return
 	}
 
@@ -786,12 +793,56 @@ func (i *Interpreter) writeHTTPResponse(writer http.ResponseWriter, status int, 
 	i.incrementMetric("http_responses_total", 1)
 }
 
-func (i *Interpreter) writeFormattedHTTPResponse(ctx context.Context, writer http.ResponseWriter, response httpResponsePayload) {
+func (i *Interpreter) writeFormattedHTTPResponse(ctx context.Context, writer http.ResponseWriter, request *http.Request, payload map[string]any, response httpResponsePayload) {
+	if response.WebSocket != nil {
+		i.writeHTTPWebSocketResponse(writer, request, payload, response)
+		return
+	}
 	if response.SSE != nil {
 		i.writeHTTPEventStream(ctx, writer, response)
 		return
 	}
 	i.writeHTTPResponse(writer, response.Status, response.Headers, response.Body)
+}
+
+func (i *Interpreter) writeHTTPWebSocketResponse(writer http.ResponseWriter, request *http.Request, payload map[string]any, response httpResponsePayload) {
+	for key, value := range response.Headers {
+		writer.Header().Set(key, value)
+	}
+
+	conn, err := ws.Accept(writer, request, &ws.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	})
+	if err != nil {
+		i.incrementMetric("http_request_errors_total", 1)
+		i.tracef("http websocket accept failed: %v", err)
+		return
+	}
+
+	handleID := i.nextHandle("websocket")
+	i.storeWebSocket(handleID, &websocketHandle{conn: conn})
+	i.incrementMetric("http_websocket_upgrades_total", 1)
+	i.incrementMetric("websocket_connections_opened_total", 1)
+	i.incrementMetric("http_responses_total", 1)
+
+	session := map[string]any{
+		"handle":  handleID,
+		"request": cloneValue(payload),
+	}
+
+	if _, err := response.WebSocket.Handler.Call(context.Background(), i, []CallArgument{{Value: session}}); err != nil {
+		i.incrementMetric("http_request_errors_total", 1)
+		i.tracef("http websocket handler failed: %v", err)
+		if handle, ok := i.closeWebSocket(handleID); ok {
+			handle.conn.Close(ws.StatusInternalError, "websocket handler failed")
+		}
+		return
+	}
+
+	if handle, ok := i.closeWebSocket(handleID); ok {
+		handle.conn.Close(ws.StatusNormalClosure, "")
+		i.incrementMetric("websocket_connections_closed_total", 1)
+	}
 }
 
 func (i *Interpreter) writeHTTPEventStream(ctx context.Context, writer http.ResponseWriter, response httpResponsePayload) {
@@ -990,13 +1041,13 @@ func (i *Interpreter) formatHTTPHandlerResponse(value any) (httpResponsePayload,
 		}
 
 		bodyModes := 0
-		for _, key := range []string{"body", "html", "json", "sse", "sse_channel"} {
+		for _, key := range []string{"body", "html", "json", "sse", "sse_channel", "websocket"} {
 			if _, ok := responseMap[key]; ok {
 				bodyModes++
 			}
 		}
 		if bodyModes > 1 {
-			return httpResponsePayload{}, fmt.Errorf("http handler response may only include one of body, html, json, sse, or sse_channel")
+			return httpResponsePayload{}, fmt.Errorf("http handler response may only include one of body, html, json, sse, sse_channel, or websocket")
 		}
 
 		if rawBody, ok := responseMap["body"]; ok {
@@ -1046,6 +1097,19 @@ func (i *Interpreter) formatHTTPHandlerResponse(value any) (httpResponsePayload,
 				},
 			}, nil
 		}
+		if rawWebSocket, ok := responseMap["websocket"]; ok {
+			handler, err := i.resolveHTTPWebSocketHandler(rawWebSocket)
+			if err != nil {
+				return httpResponsePayload{}, err
+			}
+			return httpResponsePayload{
+				Status:  http.StatusSwitchingProtocols,
+				Headers: headers,
+				WebSocket: &httpWebSocketPayload{
+					Handler: handler,
+				},
+			}, nil
+		}
 	}
 
 	return httpResponsePayload{
@@ -1053,6 +1117,28 @@ func (i *Interpreter) formatHTTPHandlerResponse(value any) (httpResponsePayload,
 		Headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"},
 		Body:    stringify(value),
 	}, nil
+}
+
+func (i *Interpreter) resolveHTTPWebSocketHandler(value any) (Callable, error) {
+	switch typed := value.(type) {
+	case Callable:
+		return typed, nil
+	case string:
+		if tool, ok := i.lookupTool(typed); ok {
+			return tool, nil
+		}
+		resolved, err := i.globals.Get(typed)
+		if err != nil {
+			return nil, fmt.Errorf("http handler response websocket: %w", err)
+		}
+		callable, ok := resolved.(Callable)
+		if !ok {
+			return nil, fmt.Errorf("http handler response websocket must reference a callable function")
+		}
+		return callable, nil
+	default:
+		return nil, fmt.Errorf("http handler response websocket must be a callable or function name")
+	}
 }
 
 func parseSSEEvents(value any) ([]sseEvent, error) {

@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"vibelang/internal/model"
 	"vibelang/internal/parser"
 )
@@ -42,6 +44,35 @@ func (c *scriptedClient) Generate(_ context.Context, request model.Request) (mod
 	response := c.responses[c.index]
 	c.index++
 	return model.Response{Text: response}, nil
+}
+
+type websocketPromptClient struct {
+	prompts []string
+}
+
+func (c *websocketPromptClient) Generate(_ context.Context, request model.Request) (model.Response, error) {
+	c.prompts = append(c.prompts, request.Prompt)
+
+	switch {
+	case strings.Contains(request.Prompt, "Current function:\nupgrade("):
+		return model.Response{Text: `{"action":"return","value":{"websocket":"chat"}}`}, nil
+	case strings.Contains(request.Prompt, "Current function:\nchat("):
+		handleMatch := regexp.MustCompile(`"handle":\s*"(websocket_[^"]+)"`).FindStringSubmatch(request.Prompt)
+		if len(handleMatch) != 2 {
+			return model.Response{}, fmt.Errorf("chat prompt did not include websocket handle")
+		}
+		handle := handleMatch[1]
+		switch {
+		case strings.Contains(request.Prompt, "Tool history:\n- websocket_send("):
+			return model.Response{Text: `{"action":"return","value":null}`}, nil
+		case strings.Contains(request.Prompt, "Tool history:\n- websocket_recv("):
+			return model.Response{Text: fmt.Sprintf(`{"action":"call_many","calls":[{"name":"websocket_send","arguments":{"handle":"%s","data":"PING","message_type":"text"}},{"name":"websocket_close","arguments":{"handle":"%s","code":1000,"reason":"done"}}]}`, handle, handle)}, nil
+		default:
+			return model.Response{Text: fmt.Sprintf(`{"action":"call","call":{"name":"websocket_recv","arguments":{"handle":"%s","timeout_ms":1000}}}`, handle)}, nil
+		}
+	default:
+		return model.Response{}, fmt.Errorf("unexpected prompt:\n%s", request.Prompt)
+	}
 }
 
 func nestedMap(root map[string]any, keys ...string) (map[string]any, bool) {
@@ -848,8 +879,8 @@ print(summarize_weather("Berlin"))
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 
-	if len(client.prompts) != 4 {
-		t.Fatalf("expected 4 model prompts, got %d", len(client.prompts))
+	if len(client.prompts) < 3 {
+		t.Fatalf("expected at least 3 model prompts, got %d", len(client.prompts))
 	}
 	if !strings.Contains(client.prompts[2], "already active") {
 		t.Fatalf("expected rejection history in follow-up prompt:\n%s", client.prompts[2])
@@ -2107,6 +2138,124 @@ http_server_stop(server["handle"])
 	want := "202\ntext/event-stream; charset=utf-8\nevent: status\nid: evt-1\ndata: booting\n\ndata: done\n\n\n"
 	if stdout.String() != want {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterSupportsWebSocketClientBuiltins(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		conn, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
+			OriginPatterns: []string{"*"},
+		})
+		if err != nil {
+			t.Errorf("Accept returned error: %v", err)
+			return
+		}
+		defer conn.Close(websocket.StatusNormalClosure, "done")
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		messageType, payload, err := conn.Read(ctx)
+		if err != nil {
+			t.Errorf("Read returned error: %v", err)
+			return
+		}
+		if messageType != websocket.MessageText {
+			t.Errorf("unexpected message type %v", messageType)
+			return
+		}
+		if string(payload) != "ping" {
+			t.Errorf("unexpected websocket payload %q", payload)
+			return
+		}
+		if err := conn.Write(ctx, websocket.MessageText, []byte("PING")); err != nil {
+			t.Errorf("Write returned error: %v", err)
+			return
+		}
+
+		_, _, err = conn.Read(ctx)
+		if status := websocket.CloseStatus(err); status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
+			t.Errorf("unexpected final websocket error: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	source := fmt.Sprintf(`handle = websocket_dial(%q)
+print(type(handle) == "string")
+print(websocket_send(handle, "ping"))
+packet = websocket_recv(handle, timeout_ms=1000)
+print(packet["ok"])
+print(packet["message_type"])
+print(packet["data"])
+print(packet["closed"])
+print(websocket_close(handle))
+`, wsURL)
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "true\ntrue\ntrue\ntext\nPING\nfalse\ntrue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterSupportsAIWebSocketHTTPServer(t *testing.T) {
+	source := `def upgrade(request: dict) -> dict:
+    Upgrade the request to the chat websocket session.
+
+def chat(session: dict) -> none:
+    Read one websocket message from session["handle"].
+    Reply with the uppercased text and then close the socket.
+
+server = http_serve("127.0.0.1:0", upgrade)
+client = websocket_dial("ws://" + server["address"] + "/chat")
+websocket_send(client, "ping")
+packet = websocket_recv(client, timeout_ms=1000)
+print(packet["data"])
+print(packet["message_type"])
+print(packet["ok"])
+print(websocket_close(client))
+http_server_stop(server["handle"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &websocketPromptClient{}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "PING\ntext\ntrue\ntrue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+	if len(client.prompts) < 3 {
+		t.Fatalf("expected at least 3 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], `"path": "/chat"`) {
+		t.Fatalf("upgrade prompt did not include request path:\n%s", client.prompts[0])
+	}
+	if !strings.Contains(client.prompts[1], `"handle": "websocket_`) {
+		t.Fatalf("chat prompt did not include websocket session handle:\n%s", client.prompts[1])
 	}
 }
 

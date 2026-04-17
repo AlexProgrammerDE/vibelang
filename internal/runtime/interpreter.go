@@ -48,6 +48,7 @@ type Interpreter struct {
 	loadingModule   map[string]bool
 	sockets         map[string]*socketHandle
 	socketListeners map[string]*socketListenerHandle
+	websockets      map[string]*websocketHandle
 	tasks           map[string]*taskHandle
 	channels        map[string]*channelHandle
 	mutexes         map[string]*mutexHandle
@@ -114,6 +115,7 @@ func NewInterpreter(config Config) *Interpreter {
 		loadingModule:   make(map[string]bool),
 		sockets:         make(map[string]*socketHandle),
 		socketListeners: make(map[string]*socketListenerHandle),
+		websockets:      make(map[string]*websocketHandle),
 		tasks:           make(map[string]*taskHandle),
 		channels:        make(map[string]*channelHandle),
 		mutexes:         make(map[string]*mutexHandle),

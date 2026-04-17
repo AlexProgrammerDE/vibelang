@@ -294,6 +294,18 @@ def stream(request: dict) -> dict:
     Return exactly {"status": 200, "sse_channel": updates}.
 ```
 
+HTTP handlers can also hand the connection off to an AI-backed WebSocket session:
+
+```python
+def upgrade(request: dict) -> dict:
+    Return exactly {"websocket": "chat"}.
+
+def chat(session: dict) -> none:
+    Receive one websocket message from session["handle"].
+    Reply with the uppercased text.
+    Close the websocket.
+```
+
 Path routing can stay deterministic even when the final response is AI-generated:
 
 ```python
@@ -403,6 +415,7 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
 - Run [examples/tool_catalog.vibe](../examples/tool_catalog.vibe) to inspect the live helper catalog.
 - Run [examples/http_sse.vibe](../examples/http_sse.vibe) to see channel-backed SSE responses.
+- Run [examples/websocket_echo.vibe](../examples/websocket_echo.vibe) to see HTTP handlers upgrade into AI-backed WebSocket sessions.
 - Run [examples/match.vibe](../examples/match.vibe) to see structural pattern matching with captures.
 - Run [examples/slices.vibe](../examples/slices.vibe) to see slicing on strings and lists.
 - Run [examples/comprehensions.vibe](../examples/comprehensions.vibe) to see list and dict comprehensions.

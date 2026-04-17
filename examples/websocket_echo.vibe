@@ -1,0 +1,15 @@
+def upgrade(request: dict) -> dict:
+    Return exactly {"websocket": "chat"}.
+
+def chat(session: dict) -> none:
+    Receive one websocket message from session["handle"].
+    Reply with the uppercased text.
+    Close the websocket.
+
+server = http_serve("127.0.0.1:0", upgrade)
+client = websocket_dial("ws://" + server["address"] + "/chat")
+websocket_send(client, "ping")
+packet = websocket_recv(client, timeout_ms=1000)
+print(packet["data"])
+websocket_close(client)
+http_server_stop(server["handle"])

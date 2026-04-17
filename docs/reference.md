@@ -383,6 +383,10 @@ Notes:
 - `sleep(milliseconds)`: pause execution
 - `http_request(url, method="GET", body="", headers={}, timeout_ms=10000)`: perform an HTTP request
 - `http_request_json(url, method="GET", body=none, headers={}, timeout_ms=10000)`: send an optional JSON body and decode the JSON response into a `json` field
+- `websocket_dial(url, headers={}, timeout_ms=5000)`: connect to a WebSocket endpoint and return a handle
+- `websocket_send(handle, data, message_type="text", timeout_ms=5000)`: send a text or binary WebSocket message
+- `websocket_recv(handle, timeout_ms=-1)`: receive `{ok, timeout, closed, message_type, data, close_code}` from a WebSocket handle
+- `websocket_close(handle, code=1000, reason="")`: close a WebSocket handle
 - `sse_event(data, event="message", id="", retry_ms=0)`: build one Server-Sent Event record
 - `run_process(command, args=[], dir="", input="", env={}, timeout_ms=30000)`: execute a local process
 - `socket_listen(address, network="tcp")`: start listening for socket connections and return `{handle, address}`
@@ -432,9 +436,10 @@ Notes:
 HTTP handler response notes:
 
 - Plain values become `200 text/plain` responses.
-- Response dicts may use exactly one of `body`, `html`, `json`, `sse`, or `sse_channel`.
+- Response dicts may use exactly one of `body`, `html`, `json`, `sse`, `sse_channel`, or `websocket`.
 - `sse` accepts one SSE event, a list of SSE events, or plain strings that become `data:` frames.
 - `sse_channel` accepts a channel handle whose values are streamed as SSE frames until the channel closes or the client disconnects.
+- `websocket` accepts either a callable or a function-name string. The session handler receives `{"handle": "...", "request": {...}}`.
 - `http_static_response` prevents directory traversal, serves directory indexes, and infers content types for frontend assets including `.wasm`.
 - SSE responses default to `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache`, and `Connection: keep-alive`.
 

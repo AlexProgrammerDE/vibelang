@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type taskHandle struct {
@@ -276,6 +278,10 @@ type socketListenerHandle struct {
 	address  string
 }
 
+type websocketHandle struct {
+	conn *websocket.Conn
+}
+
 func (i *Interpreter) registerFunction(function *AIFunction) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -354,6 +360,33 @@ func (i *Interpreter) closeSocketListener(handleID string) (*socketListenerHandl
 		return nil, false
 	}
 	delete(i.socketListeners, handleID)
+	return handle, true
+}
+
+func (i *Interpreter) storeWebSocket(handleID string, handle *websocketHandle) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.websockets[handleID] = handle
+}
+
+func (i *Interpreter) lookupWebSocket(handleID string) (*websocketHandle, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	handle, ok := i.websockets[handleID]
+	if !ok {
+		return nil, fmt.Errorf("unknown websocket handle %q", handleID)
+	}
+	return handle, nil
+}
+
+func (i *Interpreter) closeWebSocket(handleID string) (*websocketHandle, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	handle, ok := i.websockets[handleID]
+	if !ok {
+		return nil, false
+	}
+	delete(i.websockets, handleID)
 	return handle, true
 }
 
