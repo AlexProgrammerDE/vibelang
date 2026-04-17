@@ -8,12 +8,16 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
 	"time"
 
 	"vibelang/internal/ast"
 )
 
 func registerHTTPServerBuiltins(interpreter *Interpreter) {
+	registerBuiltin(interpreter, promptToolBuiltin("route_match", builtinRouteMatch, "dict{matched: bool, params: dict[string, string]}", "Match a request path against a route pattern like /users/:id or /assets/*path and return matched plus any extracted params.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "request_path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "http_serve",
 		call: builtinHTTPServe,
@@ -51,6 +55,26 @@ func registerHTTPServerBuiltins(interpreter *Interpreter) {
 		},
 		bindArgs: true,
 	})
+}
+
+func builtinRouteMatch(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("route_match", args, 2); err != nil {
+		return nil, err
+	}
+	pattern, err := requireString("route_match", args[0], "pattern")
+	if err != nil {
+		return nil, err
+	}
+	requestPath, err := requireString("route_match", args[1], "request_path")
+	if err != nil {
+		return nil, err
+	}
+
+	matched, params := routeMatch(pattern, requestPath)
+	return map[string]any{
+		"matched": matched,
+		"params":  params,
+	}, nil
 }
 
 func builtinHTTPServe(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
@@ -244,4 +268,73 @@ func formatHTTPHandlerResponse(value any) (int, map[string]string, string, error
 	}
 
 	return http.StatusOK, map[string]string{"Content-Type": "text/plain; charset=utf-8"}, stringify(value), nil
+}
+
+func routeMatch(pattern, requestPath string) (bool, map[string]any) {
+	patternSegments := splitRouteSegments(pattern)
+	pathSegments := splitRouteSegments(requestPath)
+	params := make(map[string]any)
+
+	patternIndex := 0
+	pathIndex := 0
+	for patternIndex < len(patternSegments) {
+		segment := patternSegments[patternIndex]
+		if strings.HasPrefix(segment, "*") {
+			name := strings.TrimPrefix(segment, "*")
+			if name == "" || patternIndex != len(patternSegments)-1 {
+				return false, map[string]any{}
+			}
+			params[name] = decodeRouteValue(strings.Join(pathSegments[pathIndex:], "/"))
+			return true, params
+		}
+
+		if pathIndex >= len(pathSegments) {
+			return false, map[string]any{}
+		}
+
+		value := decodeRouteValue(pathSegments[pathIndex])
+		if strings.HasPrefix(segment, ":") {
+			name := strings.TrimPrefix(segment, ":")
+			if name == "" {
+				return false, map[string]any{}
+			}
+			params[name] = value
+			patternIndex++
+			pathIndex++
+			continue
+		}
+
+		if segment != value {
+			return false, map[string]any{}
+		}
+		patternIndex++
+		pathIndex++
+	}
+
+	if pathIndex != len(pathSegments) {
+		return false, map[string]any{}
+	}
+	return true, params
+}
+
+func splitRouteSegments(raw string) []string {
+	cleaned := path.Clean(strings.TrimSpace(raw))
+	if cleaned == "." || cleaned == "/" {
+		return []string{}
+	}
+	if !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
+	}
+	trimmed := strings.Trim(cleaned, "/")
+	if trimmed == "" {
+		return []string{}
+	}
+	return strings.Split(trimmed, "/")
+}
+
+func decodeRouteValue(value string) string {
+	if decoded, err := url.PathUnescape(value); err == nil {
+		return decoded
+	}
+	return value
 }

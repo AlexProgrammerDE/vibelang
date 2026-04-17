@@ -16,7 +16,7 @@ func macroSystemPrompt() string {
 	}, "\n")
 }
 
-func buildMacroActionSchema(tools []ToolSpec) map[string]any {
+func buildMacroActionSchema(tools []ToolSpec) (map[string]any, error) {
 	variants := []any{
 		map[string]any{
 			"type": "object",
@@ -35,9 +35,9 @@ func buildMacroActionSchema(tools []ToolSpec) map[string]any {
 	}
 
 	if len(tools) > 0 {
-		names := make([]string, 0, len(tools))
-		for _, tool := range tools {
-			names = append(names, tool.Name)
+		callSchema, err := buildToolCallSchema(tools)
+		if err != nil {
+			return nil, err
 		}
 		variants = append(variants, map[string]any{
 			"type": "object",
@@ -46,28 +46,14 @@ func buildMacroActionSchema(tools []ToolSpec) map[string]any {
 					"type":  "string",
 					"const": "call",
 				},
-				"call": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"name": map[string]any{
-							"type": "string",
-							"enum": names,
-						},
-						"arguments": map[string]any{
-							"type":                 "object",
-							"additionalProperties": true,
-						},
-					},
-					"required":             []string{"name", "arguments"},
-					"additionalProperties": false,
-				},
+				"call": callSchema,
 			},
 			"required":             []string{"action", "call"},
 			"additionalProperties": false,
 		})
 	}
 
-	return map[string]any{"oneOf": variants}
+	return map[string]any{"oneOf": variants}, nil
 }
 
 func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent, schema map[string]any) (string, error) {
@@ -121,6 +107,7 @@ func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, 
 	builder.WriteString(indentLines(jsonString(schema), "  "))
 	builder.WriteString("\n\n")
 	builder.WriteString("When finished, return action=expand and put exactly one valid vibelang expression in source.\n")
+	builder.WriteString("Every helper call must use exactly the declared argument names and argument types.\n")
 	builder.WriteString("Do not wrap the expression in markdown or explanations.\n")
 
 	return builder.String(), nil

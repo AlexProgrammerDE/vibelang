@@ -334,6 +334,7 @@ Notes:
 - `socket_write(handle, data)`: write to an open socket
 - `socket_read(handle, max_bytes=4096, timeout_ms=1000)`: read from an open socket
 - `socket_close(handle)`: close an open socket
+- `route_match(pattern, request_path)`: match a path against route patterns such as `/users/:id` or `/assets/*path` and return `{"matched": bool, "params": {...}}`
 - `spawn(callable, args=[], kwargs={}, wait_group=none)`: run a function concurrently and return a task handle
 - `await_task(task, timeout_ms=-1)`: wait for a task and return its result
 - `task_status(task)`: inspect task completion, timestamps, result, or error
@@ -385,6 +386,7 @@ Behavior:
 - `return` ends the function.
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
+- Helper call schemas are specialized per tool, so models see exact helper names plus the allowed and required argument fields for each callable.
 - Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
 - `@cache true` memoizes successful AI function and macro results for identical inputs and directives.
 - Self-recursive helper calls are rejected and fed back into the next model step through tool history.

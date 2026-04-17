@@ -1,0 +1,9 @@
+user = route_match("/users/:id", "/users/42")
+assets = route_match("/assets/*path", "/assets/css/app.css")
+miss = route_match("/users/:id", "/teams/42")
+
+print(user["matched"])
+print(user["params"]["id"])
+print(assets["params"]["path"])
+print(miss["matched"])
+print(json(miss["params"]))

@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -53,3 +54,13 @@ jobs:
           find std examples -name '*.vibe' -print | sort | while read -r file; do
             go run ./cmd/vibelang --check "$file"
           done
+
+      - name: Run deterministic example
+        run: |
+          output="$(go run ./cmd/vibelang examples/routes.vibe)"
+          expected=$'true\n42\ncss/app.css\nfalse\n{}\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected routes.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi

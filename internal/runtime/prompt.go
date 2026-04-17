@@ -62,9 +62,9 @@ func buildAIActionSchema(returnType string, tools []ToolSpec) (map[string]any, e
 	}
 
 	if len(tools) > 0 {
-		names := make([]string, 0, len(tools))
-		for _, tool := range tools {
-			names = append(names, tool.Name)
+		callSchema, err := buildToolCallSchema(tools)
+		if err != nil {
+			return nil, err
 		}
 		variants = append(variants, map[string]any{
 			"type": "object",
@@ -73,21 +73,7 @@ func buildAIActionSchema(returnType string, tools []ToolSpec) (map[string]any, e
 					"type":  "string",
 					"const": "call",
 				},
-				"call": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"name": map[string]any{
-							"type": "string",
-							"enum": names,
-						},
-						"arguments": map[string]any{
-							"type":                 "object",
-							"additionalProperties": true,
-						},
-					},
-					"required":             []string{"name", "arguments"},
-					"additionalProperties": false,
-				},
+				"call": callSchema,
 			},
 			"required":             []string{"action", "call"},
 			"additionalProperties": false,
@@ -158,6 +144,7 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 
 	builder.WriteString("Return JSON only. Keep helper arguments valid for the declared parameter names.\n")
 	builder.WriteString(fmt.Sprintf("The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
+	builder.WriteString("Every helper call must use exactly the declared argument names and argument types.\n")
 	builder.WriteString("Never request a helper call that matches any active AI call stack entry.\n")
 	builder.WriteString("Never retry a helper call that already appears as rejected or failed in the tool history.\n")
 

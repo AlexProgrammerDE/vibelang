@@ -1721,6 +1721,52 @@ print(process["stdout"])
 	}
 }
 
+func TestInterpreterProvidesRouteMatchingHelpers(t *testing.T) {
+	source := `user = route_match("/users/:id", "/users/42")
+asset = route_match("/assets/*path", "/assets/css/app.css")
+miss = route_match("/users/:id", "/teams/42")
+normalized = route_match("users/:id", "users/99/")
+encoded = route_match("/files/:name", "/files/report%20final.txt")
+
+print(user["matched"])
+print(user["params"]["id"])
+print(asset["matched"])
+print(asset["params"]["path"])
+print(miss["matched"])
+print(json(miss["params"]))
+print(normalized["matched"])
+print(normalized["params"]["id"])
+print(encoded["params"]["name"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"true",
+		"42",
+		"true",
+		"css/app.css",
+		"false",
+		"{}",
+		"true",
+		"99",
+		"report final.txt",
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterProvidesSocketStdlib(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -15,6 +15,7 @@
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
 - Supports structured AI return types such as `dict{city: string, alerts: optional[list[string]]}` and `tuple[string, int]`, and turns them into tighter JSON schemas for model backends.
+- Constrains helper calls with per-helper JSON schemas, so models see the exact argument names, required fields, and types for each callable tool.
 - Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
 - Supports block-scoped `defer` expressions for LIFO cleanup on normal exit, `break`, `continue`, and errors.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
@@ -23,7 +24,7 @@
 - Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
 - Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
-- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, and runtime metrics.
+- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
 - Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
 - Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
@@ -297,6 +298,16 @@ print(rebuilt)
 print(response["json"])
 ```
 
+Route matching is built in for AI-backed HTTP handlers and plain deterministic code:
+
+```python
+user = route_match("/users/:id", "/users/42")
+assets = route_match("/assets/*path", "/assets/css/app.css")
+
+print(user["params"]["id"])
+print(assets["params"]["path"])
+```
+
 ## Project Layout
 
 - `cmd/vibelang`: CLI entrypoint.
@@ -319,7 +330,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `http_request_json`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
-- Services: `http_serve`, `http_server_stop`
+- Services: `route_match`, `http_serve`, `http_server_stop`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
 
 Bundled `std` modules currently include:

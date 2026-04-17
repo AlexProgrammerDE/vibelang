@@ -196,6 +196,16 @@ packet = channel_select([first, second], timeout_ms=10)
 print(packet["value"])
 ```
 
+Path routing can stay deterministic even when the final response is AI-generated:
+
+```python
+user = route_match("/users/:id", "/users/42")
+assets = route_match("/assets/*path", "/assets/css/app.css")
+
+print(user["params"]["id"])
+print(assets["params"]["path"])
+```
+
 Deterministic code can catch runtime failures:
 
 ```python
@@ -292,6 +302,7 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
+- Run [examples/routes.vibe](../examples/routes.vibe) to validate deterministic route matching without needing a model.
 - Run [examples/structured_outputs.vibe](../examples/structured_outputs.vibe) to see typed AI return values, optional fields, nested records, and tuples.
 - Run [examples/directives.vibe](../examples/directives.vibe) to see per-function AI directives.
 - Run [examples/error_handling.vibe](../examples/error_handling.vibe) to see `try` / `except` / `finally` and text helpers.

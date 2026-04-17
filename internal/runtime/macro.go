@@ -96,7 +96,10 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs("", macro.directives)
-	actionSchema := buildMacroActionSchema(tools)
+	actionSchema, err := buildMacroActionSchema(tools)
+	if err != nil {
+		return nil, err
+	}
 
 	maxSteps := i.maxAISteps
 	if macro.directives.MaxSteps != nil {
