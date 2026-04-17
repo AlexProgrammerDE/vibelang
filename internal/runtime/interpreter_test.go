@@ -2266,3 +2266,65 @@ print(socket_listener_close(listener["handle"]))
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
+
+func TestInterpreterProvidesYAMLStdlib(t *testing.T) {
+	source := fmt.Sprintf(`path = %q
+write_yaml(path, {"name": "Ada", "enabled": true, "ports": [8080, 8081]})
+payload = read_yaml(path)
+parsed = yaml_parse("service: vibelang\nports:\n  - 7000\n  - 7001\n")
+
+print(payload["name"])
+print(payload["enabled"])
+print(payload["ports"][1])
+print(parsed["service"])
+print(parsed["ports"][0])
+print(contains(yaml_stringify(payload), "name: Ada"))
+`, filepath.Join(t.TempDir(), "config.yaml"))
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "Ada\ntrue\n8081\nvibelang\n7000\ntrue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterProvidesCookieHelpers(t *testing.T) {
+	source := `cookie = cookie_build("session", "abc123", {"path": "/", "http_only": true, "same_site": "lax", "max_age": 60, "secure": true})
+parsed = cookie_parse("theme=dark; session=abc123")
+
+print(contains(cookie, "session=abc123"))
+print(contains(cookie, "Path=/"))
+print(contains(cookie, "Max-Age=60"))
+print(contains(cookie, "HttpOnly"))
+print(contains(cookie, "Secure"))
+print(contains(cookie, "SameSite=Lax"))
+print(parsed["theme"])
+print(parsed["session"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "true\ntrue\ntrue\ntrue\ntrue\ntrue\ndark\nabc123\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}

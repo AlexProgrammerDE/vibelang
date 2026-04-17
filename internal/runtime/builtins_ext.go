@@ -809,6 +809,14 @@ func requireInt(name string, value any, param string) (int64, error) {
 	return number, nil
 }
 
+func requireBool(name string, value any, param string) (bool, error) {
+	boolean, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s expects %s to be a bool", name, param)
+	}
+	return boolean, nil
+}
+
 func requireStringMap(name string, value any, param string) (map[string]string, error) {
 	dict, ok := asMap(value)
 	if !ok {

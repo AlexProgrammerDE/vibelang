@@ -93,6 +93,26 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic YAML example
+        run: |
+          output="$(go run ./cmd/vibelang examples/yaml.vibe)"
+          expected=$'Ada\n8080\nvibelang\ntrue\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected yaml.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
+      - name: Run deterministic cookie example
+        run: |
+          output="$(go run ./cmd/vibelang examples/cookies.vibe)"
+          expected=$'true\ntrue\ntrue\ndark\nabc123\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected cookies.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Build and publish release artifacts
         uses: goreleaser/goreleaser-action@v7
         with:

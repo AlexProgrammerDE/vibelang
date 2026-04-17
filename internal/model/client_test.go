@@ -249,6 +249,184 @@ func TestOpenAICompatibleClientUsesChatCompletionsWithSchema(t *testing.T) {
 	}
 }
 
+func TestOllamaClientReturnsNativeToolCalls(t *testing.T) {
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode returned error: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":{"content":"","tool_calls":[{"function":{"name":"lookup_weather","arguments":{"city":"Berlin"}}}]}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Provider: "ollama",
+		Endpoint: server.URL,
+		Model:    "gemma4",
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	response, err := client.Generate(context.Background(), Request{
+		System: "system prompt",
+		Prompt: "user prompt",
+		Tools: []ToolDefinition{
+			{
+				Name:        "lookup_weather",
+				Description: "Look up weather for a city.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"city": map[string]any{"type": "string"},
+					},
+					"required": []string{"city"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if response.ToolCall == nil {
+		t.Fatalf("expected native tool call response, got %#v", response)
+	}
+	if response.ToolCall.Name != "lookup_weather" {
+		t.Fatalf("unexpected tool name: %#v", response.ToolCall)
+	}
+	if response.ToolCall.Arguments["city"] != "Berlin" {
+		t.Fatalf("unexpected tool arguments: %#v", response.ToolCall.Arguments)
+	}
+	if _, ok := payload["tools"].([]any); !ok {
+		t.Fatalf("expected tools in ollama payload, got %#v", payload["tools"])
+	}
+}
+
+func TestLlamaCPPClientReturnsNativeToolCalls(t *testing.T) {
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode returned error: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"","tool_calls":[{"type":"function","function":{"name":"lookup_weather","arguments":"{\"city\":\"Berlin\"}"}}]}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Provider: "llamacpp",
+		Endpoint: server.URL,
+		Model:    "gemma4",
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	response, err := client.Generate(context.Background(), Request{
+		System: "system prompt",
+		Prompt: "user prompt",
+		Tools: []ToolDefinition{
+			{
+				Name:        "lookup_weather",
+				Description: "Look up weather for a city.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"city": map[string]any{"type": "string"},
+					},
+					"required": []string{"city"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if response.ToolCall == nil {
+		t.Fatalf("expected native tool call response, got %#v", response)
+	}
+	if response.ToolCall.Name != "lookup_weather" {
+		t.Fatalf("unexpected tool name: %#v", response.ToolCall)
+	}
+	if response.ToolCall.Arguments["city"] != "Berlin" {
+		t.Fatalf("unexpected tool arguments: %#v", response.ToolCall.Arguments)
+	}
+	if _, ok := payload["tools"].([]any); !ok {
+		t.Fatalf("expected tools in llama.cpp payload, got %#v", payload["tools"])
+	}
+}
+
+func TestOpenAICompatibleClientReturnsNativeToolCalls(t *testing.T) {
+	var payload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode returned error: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup_weather","arguments":"{\"city\":\"Berlin\"}"}}]}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Provider: "openai-compatible",
+		Endpoint: server.URL,
+		Model:    "demo-model",
+		APIKey:   "secret-token",
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	response, err := client.Generate(context.Background(), Request{
+		System: "system prompt",
+		Prompt: "user prompt",
+		Tools: []ToolDefinition{
+			{
+				Name:        "lookup_weather",
+				Description: "Look up weather for a city.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"city": map[string]any{"type": "string"},
+					},
+					"required": []string{"city"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if response.ToolCall == nil {
+		t.Fatalf("expected native tool call response, got %#v", response)
+	}
+	if response.ToolCall.Name != "lookup_weather" {
+		t.Fatalf("unexpected tool name: %#v", response.ToolCall)
+	}
+	if response.ToolCall.Arguments["city"] != "Berlin" {
+		t.Fatalf("unexpected tool arguments: %#v", response.ToolCall.Arguments)
+	}
+	if _, ok := payload["tools"].([]any); !ok {
+		t.Fatalf("expected tools in openai-compatible payload, got %#v", payload["tools"])
+	}
+}
+
 func TestGroqClientClampsZeroTemperature(t *testing.T) {
 	var payload map[string]any
 

@@ -84,11 +84,13 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("replace", builtinReplace, "string", "Replace every occurrence of one substring with another.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "old", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "new", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("contains", builtinContains, "bool", "Return true when a string contains a substring, a list contains a value, or a dict contains a key.", ast.Param{Name: "container"}, ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_json", builtinReadJSON, "any", "Read a JSON file and decode it into vibelang values.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("read_yaml", builtinReadYAML, "any", "Read a YAML file and decode it into vibelang values.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("write_file", builtinWriteFile, "string", "Write text to a file, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("delete_file", builtinDeleteFile, "bool", "Delete a file. Return true if a file was removed and false if it was already missing.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("make_dir", builtinMakeDir, "string", "Create a directory and any missing parents. Return the created path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("append_file", builtinAppendFile, "string", "Append text to a file, creating it and its parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("write_json", builtinWriteJSON, "string", "Write a value as formatted JSON, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, toolBuiltin("write_yaml", builtinWriteYAML, "string", "Write a value as YAML, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
 	interpreter.globals.Define("pi", math.Pi)
 	interpreter.globals.Define("e", math.E)
 	registerExtendedBuiltins(interpreter)
@@ -686,6 +688,21 @@ func builtinReadJSON(_ context.Context, _ *Interpreter, args []any) (any, error)
 	return normalizeJSONValue(value), nil
 }
 
+func builtinReadYAML(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("read_yaml", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("read_yaml", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseYAMLText(string(content))
+}
+
 func builtinMakeDir(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("make_dir", args, 1); err != nil {
 		return nil, err
@@ -742,6 +759,30 @@ func builtinWriteJSON(_ context.Context, _ *Interpreter, args []any) (any, error
 		return nil, err
 	}
 	encoded = append(encoded, '\n')
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		return nil, err
+	}
+	return path, nil
+}
+
+func builtinWriteYAML(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("write_yaml", args, 2); err != nil {
+		return nil, err
+	}
+	path, err := requireString("write_yaml", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureParentDir(path); err != nil {
+		return nil, err
+	}
+	encoded, err := marshalYAMLValue(args[1])
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) == 0 || encoded[len(encoded)-1] != '\n' {
+		encoded = append(encoded, '\n')
+	}
 	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		return nil, err
 	}

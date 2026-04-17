@@ -7,11 +7,14 @@ import (
 	"reflect"
 	"sort"
 
+	"gopkg.in/yaml.v3"
+
 	"vibelang/internal/ast"
 )
 
 func registerDataBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("json_parse", builtinJSONParse, "any", "Parse a JSON string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("yaml_parse", builtinYAMLParse, "any", "Parse a YAML string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "json_pretty",
 		call: builtinJSONPretty,
@@ -30,6 +33,7 @@ func registerDataBuiltins(interpreter *Interpreter) {
 		bindArgs:   true,
 		promptSafe: true,
 	})
+	registerBuiltin(interpreter, promptToolBuiltin("yaml_stringify", builtinYAMLStringify, "string", "Encode a value as YAML.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("set", builtinSet, "set", "Create a set from the given list of values.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("set_values", builtinSetValues, "list", "Return the sorted values from a set.", ast.Param{Name: "set", Type: ast.TypeRef{Expr: "set"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("set_has", builtinSetHas, "bool", "Return true when a set contains the given value.", ast.Param{Name: "set", Type: ast.TypeRef{Expr: "set"}}, ast.Param{Name: "value"}))
@@ -151,6 +155,69 @@ func builtinJSONPretty(_ context.Context, _ *Interpreter, args []any) (any, erro
 		return nil, err
 	}
 	return string(encoded), nil
+}
+
+func builtinYAMLParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("yaml_parse", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("yaml_parse", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	return parseYAMLText(text)
+}
+
+func builtinYAMLStringify(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("yaml_stringify", args, 1); err != nil {
+		return nil, err
+	}
+	encoded, err := marshalYAMLValue(args[0])
+	if err != nil {
+		return nil, err
+	}
+	return string(encoded), nil
+}
+
+func parseYAMLText(text string) (any, error) {
+	var value any
+	if err := yaml.Unmarshal([]byte(text), &value); err != nil {
+		return nil, err
+	}
+	return normalizeYAMLValue(value), nil
+}
+
+func marshalYAMLValue(value any) ([]byte, error) {
+	encoded, err := yaml.Marshal(normalizeYAMLValue(value))
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+func normalizeYAMLValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		normalized := make(map[string]any, len(typed))
+		for key, item := range typed {
+			normalized[key] = normalizeYAMLValue(item)
+		}
+		return normalized
+	case map[any]any:
+		normalized := make(map[string]any, len(typed))
+		for key, item := range typed {
+			normalized[stringify(key)] = normalizeYAMLValue(item)
+		}
+		return normalized
+	case []any:
+		normalized := make([]any, 0, len(typed))
+		for _, item := range typed {
+			normalized = append(normalized, normalizeYAMLValue(item))
+		}
+		return normalized
+	default:
+		return normalizeJSONValue(value)
+	}
 }
 
 func builtinSet(_ context.Context, _ *Interpreter, args []any) (any, error) {

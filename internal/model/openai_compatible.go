@@ -16,12 +16,13 @@ type openAICompatibleClient struct {
 }
 
 type openAIChatRequest struct {
-	Model          string          `json:"model"`
-	Messages       []openAIMessage `json:"messages"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
-	Temperature    float64         `json:"temperature"`
-	Stream         bool            `json:"stream"`
-	ResponseFormat map[string]any  `json:"response_format,omitempty"`
+	Model          string                   `json:"model"`
+	Messages       []openAIMessage          `json:"messages"`
+	Tools          []providerToolDefinition `json:"tools,omitempty"`
+	MaxTokens      int                      `json:"max_tokens,omitempty"`
+	Temperature    float64                  `json:"temperature"`
+	Stream         bool                     `json:"stream"`
+	ResponseFormat map[string]any           `json:"response_format,omitempty"`
 }
 
 type openAIMessage struct {
@@ -32,7 +33,8 @@ type openAIMessage struct {
 type openAIChatResponse struct {
 	Choices []struct {
 		Message struct {
-			Content any `json:"content"`
+			Content   any                `json:"content"`
+			ToolCalls []providerToolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
 	Error *struct {
@@ -65,16 +67,16 @@ func newOpenAICompatibleClient(config Config) (Client, error) {
 }
 
 func (c *openAICompatibleClient) Generate(ctx context.Context, request Request) (Response, error) {
-	text, err := c.generateChatCompletion(ctx, request, openAIResponseFormat(request.JSONSchema, true))
+	response, err := c.generateChatCompletion(ctx, request, openAIResponseFormat(request.JSONSchema, true))
 	if err == nil {
-		return Response{Text: text}, nil
+		return response, nil
 	}
 
 	apiErr, ok := err.(*openAIAPIError)
 	if ok && apiErr.StatusCode == http.StatusBadRequest && len(request.JSONSchema) > 0 {
-		text, retryErr := c.generateChatCompletion(ctx, request, openAIResponseFormat(request.JSONSchema, false))
+		response, retryErr := c.generateChatCompletion(ctx, request, openAIResponseFormat(request.JSONSchema, false))
 		if retryErr == nil {
-			return Response{Text: text}, nil
+			return response, nil
 		}
 		return Response{}, retryErr
 	}
@@ -82,7 +84,7 @@ func (c *openAICompatibleClient) Generate(ctx context.Context, request Request) 
 	return Response{}, err
 }
 
-func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, request Request, responseFormat map[string]any) (string, error) {
+func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, request Request, responseFormat map[string]any) (Response, error) {
 	messages := make([]openAIMessage, 0, 2)
 	if strings.TrimSpace(request.System) != "" {
 		messages = append(messages, openAIMessage{Role: "system", Content: request.System})
@@ -92,6 +94,7 @@ func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, req
 	payload := openAIChatRequest{
 		Model:          c.config.Model,
 		Messages:       messages,
+		Tools:          requestTools(request),
 		MaxTokens:      c.maxTokens(request),
 		Temperature:    c.temperature(request),
 		Stream:         false,
@@ -100,13 +103,13 @@ func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, req
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal chat request: %w", err)
+		return Response{}, fmt.Errorf("marshal chat request: %w", err)
 	}
 
 	endpoint := strings.TrimRight(c.config.Endpoint, "/") + "/v1/chat/completions"
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build chat request: %w", err)
+		return Response{}, fmt.Errorf("build chat request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(c.config.APIKey) != "" {
@@ -115,16 +118,16 @@ func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, req
 
 	httpResponse, err := c.httpClient.Do(httpRequest)
 	if err != nil {
-		return "", fmt.Errorf("chat request failed: %w", err)
+		return Response{}, fmt.Errorf("chat request failed: %w", err)
 	}
 	defer httpResponse.Body.Close()
 
 	responseBody, err := io.ReadAll(httpResponse.Body)
 	if err != nil {
-		return "", fmt.Errorf("read chat response: %w", err)
+		return Response{}, fmt.Errorf("read chat response: %w", err)
 	}
 	if httpResponse.StatusCode >= 400 {
-		return "", &openAIAPIError{
+		return Response{}, &openAIAPIError{
 			StatusCode: httpResponse.StatusCode,
 			Message:    strings.TrimSpace(string(responseBody)),
 		}
@@ -132,23 +135,31 @@ func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, req
 
 	var response openAIChatResponse
 	if err := json.Unmarshal(responseBody, &response); err != nil {
-		return "", fmt.Errorf("decode chat response: %w", err)
+		return Response{}, fmt.Errorf("decode chat response: %w", err)
 	}
 	if response.Error != nil {
-		return "", fmt.Errorf("chat response error: %s", response.Error.Message)
+		return Response{}, fmt.Errorf("chat response error: %s", response.Error.Message)
 	}
 	if len(response.Choices) == 0 {
-		return "", fmt.Errorf("chat response did not include any choices")
+		return Response{}, fmt.Errorf("chat response did not include any choices")
+	}
+
+	toolCall, err := firstToolCall(response.Choices[0].Message.ToolCalls)
+	if err != nil {
+		return Response{}, err
+	}
+	if toolCall != nil {
+		return Response{ToolCall: toolCall}, nil
 	}
 
 	text, err := openAIMessageText(response.Choices[0].Message.Content)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	if strings.TrimSpace(text) == "" {
-		return "", fmt.Errorf("chat response returned empty content")
+		return Response{}, fmt.Errorf("chat response returned empty content")
 	}
-	return text, nil
+	return Response{Text: text}, nil
 }
 
 func openAIResponseFormat(schema map[string]any, preferSchema bool) map[string]any {

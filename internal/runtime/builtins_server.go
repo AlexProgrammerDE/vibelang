@@ -48,6 +48,26 @@ type sseEvent struct {
 func registerHTTPServerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("route_match", builtinRouteMatch, "dict{matched: bool, params: dict[string, string]}", "Match a request path against a route pattern like /users/:id or /assets/*path and return matched plus any extracted params.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "request_path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("mime_type", builtinMimeType, "string", "Guess the HTTP content type for a file path, including application/wasm for WebAssembly modules.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("cookie_parse", builtinCookieParse, "dict[string, string]", "Parse one HTTP Cookie header into a dict of cookie names and values.", ast.Param{Name: "header", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "cookie_build",
+		call: builtinCookieBuild,
+		tool: &ToolSpec{
+			Name:       "cookie_build",
+			ReturnType: ast.TypeRef{Expr: "string"},
+			Body:       "Build one Set-Cookie header value from a cookie name, value, and optional attrs dict. Supported attrs include path, domain, max_age, secure, http_only, same_site, expires, and partitioned.",
+			Params: []ast.Param{
+				{Name: "name", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "value", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "attrs", Type: ast.TypeRef{Expr: "dict"}, DefaultText: "{}"},
+			},
+		},
+		defaults: map[string]any{
+			"attrs": map[string]any{},
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "sse_event",
 		call: builtinSSEEvent,
@@ -184,6 +204,113 @@ func builtinMimeType(_ context.Context, _ *Interpreter, args []any) (any, error)
 	return detectStaticContentType(filePath, nil), nil
 }
 
+func builtinCookieParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("cookie_parse", args, 1); err != nil {
+		return nil, err
+	}
+	header, err := requireString("cookie_parse", args[0], "header")
+	if err != nil {
+		return nil, err
+	}
+
+	request := &http.Request{Header: http.Header{"Cookie": []string{header}}}
+	cookies := request.Cookies()
+	values := make(map[string]any, len(cookies))
+	for _, cookie := range cookies {
+		values[cookie.Name] = cookie.Value
+	}
+	return values, nil
+}
+
+func builtinCookieBuild(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("cookie_build", args, 3); err != nil {
+		return nil, err
+	}
+	name, err := requireString("cookie_build", args[0], "name")
+	if err != nil {
+		return nil, err
+	}
+	value, err := requireString("cookie_build", args[1], "value")
+	if err != nil {
+		return nil, err
+	}
+	attrs, ok := asMap(args[2])
+	if !ok {
+		return nil, fmt.Errorf("cookie_build expects attrs to be a dict")
+	}
+
+	cookie := &http.Cookie{
+		Name:  name,
+		Value: value,
+	}
+	if pathValue, ok := attrs["path"]; ok {
+		text, err := requireString("cookie_build", pathValue, "attrs.path")
+		if err != nil {
+			return nil, err
+		}
+		cookie.Path = text
+	}
+	if domainValue, ok := attrs["domain"]; ok {
+		text, err := requireString("cookie_build", domainValue, "attrs.domain")
+		if err != nil {
+			return nil, err
+		}
+		cookie.Domain = text
+	}
+	if maxAgeValue, ok := attrs["max_age"]; ok {
+		number, err := requireInt("cookie_build", maxAgeValue, "attrs.max_age")
+		if err != nil {
+			return nil, err
+		}
+		cookie.MaxAge = int(number)
+	}
+	if secureValue, ok := attrs["secure"]; ok {
+		flag, err := requireBool("cookie_build", secureValue, "attrs.secure")
+		if err != nil {
+			return nil, err
+		}
+		cookie.Secure = flag
+	}
+	if httpOnlyValue, ok := attrs["http_only"]; ok {
+		flag, err := requireBool("cookie_build", httpOnlyValue, "attrs.http_only")
+		if err != nil {
+			return nil, err
+		}
+		cookie.HttpOnly = flag
+	}
+	if partitionedValue, ok := attrs["partitioned"]; ok {
+		flag, err := requireBool("cookie_build", partitionedValue, "attrs.partitioned")
+		if err != nil {
+			return nil, err
+		}
+		cookie.Partitioned = flag
+	}
+	if sameSiteValue, ok := attrs["same_site"]; ok {
+		text, err := requireString("cookie_build", sameSiteValue, "attrs.same_site")
+		if err != nil {
+			return nil, err
+		}
+		mode, err := parseCookieSameSite(text)
+		if err != nil {
+			return nil, err
+		}
+		cookie.SameSite = mode
+	}
+	if expiresValue, ok := attrs["expires"]; ok {
+		text, err := requireString("cookie_build", expiresValue, "attrs.expires")
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := time.Parse(time.RFC3339, text)
+		if err != nil {
+			return nil, fmt.Errorf("cookie_build attrs.expires must be RFC3339: %w", err)
+		}
+		cookie.Expires = parsed
+	}
+
+	return cookie.String(), nil
+}
+
 func builtinSSEEvent(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("sse_event", args, 4); err != nil {
 		return nil, err
@@ -211,6 +338,21 @@ func builtinSSEEvent(_ context.Context, _ *Interpreter, args []any) (any, error)
 		"id":       id,
 		"retry_ms": retryMS,
 	}, nil
+}
+
+func parseCookieSameSite(raw string) (http.SameSite, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "default":
+		return http.SameSiteDefaultMode, nil
+	case "lax":
+		return http.SameSiteLaxMode, nil
+	case "strict":
+		return http.SameSiteStrictMode, nil
+	case "none":
+		return http.SameSiteNoneMode, nil
+	default:
+		return http.SameSiteDefaultMode, fmt.Errorf("unsupported same_site %q", raw)
+	}
 }
 
 func builtinHTTPStaticResponse(_ context.Context, _ *Interpreter, args []any) (any, error) {

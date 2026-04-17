@@ -1,0 +1,8 @@
+cookie = cookie_build("session", "abc123", {"path": "/", "http_only": true, "same_site": "lax", "max_age": 60, "secure": true})
+parsed = cookie_parse("theme=dark; session=abc123")
+
+print(contains(cookie, "session=abc123"))
+print(contains(cookie, "HttpOnly"))
+print(contains(cookie, "SameSite=Lax"))
+print(parsed["theme"])
+print(parsed["session"])

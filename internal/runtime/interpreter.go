@@ -932,6 +932,10 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs(excludeTool, directives)
+	modelTools, err := buildModelToolDefinitions(tools)
+	if err != nil {
+		return nil, err
+	}
 	actionSchema, err := buildAIActionSchema(function.Def.ReturnType.String(), tools)
 	if err != nil {
 		return nil, err
@@ -951,6 +955,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			System:      aiSystemPrompt(),
 			Prompt:      prompt,
 			JSONSchema:  actionSchema,
+			Tools:       modelTools,
 			Temperature: directives.Temperature,
 			MaxTokens:   directives.MaxTokens,
 		})
@@ -959,11 +964,23 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			i.incrementMetric("ai_model_request_errors_total", 1)
 			return nil, fmt.Errorf("%s model request failed: %w", function.Name(), err)
 		}
-		i.tracef("%s raw model response: %s", function.Name(), response.Text)
+		var action aiAction
+		if response.ToolCall != nil {
+			i.tracef("%s native tool call: %s with %s", function.Name(), response.ToolCall.Name, jsonString(response.ToolCall.Arguments))
+			action = aiAction{
+				Action: "call",
+				Call: &toolInvocation{
+					Name:      response.ToolCall.Name,
+					Arguments: response.ToolCall.Arguments,
+				},
+			}
+		} else {
+			i.tracef("%s raw model response: %s", function.Name(), response.Text)
 
-		action, err := decodeAIAction(response.Text)
-		if err != nil {
-			return nil, fmt.Errorf("%s returned invalid JSON action: %w", function.Name(), err)
+			action, err = decodeAIAction(response.Text)
+			if err != nil {
+				return nil, fmt.Errorf("%s returned invalid JSON action: %w", function.Name(), err)
+			}
 		}
 
 		switch action.Action {

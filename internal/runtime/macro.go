@@ -96,6 +96,10 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs("", macro.directives)
+	modelTools, err := buildModelToolDefinitions(tools)
+	if err != nil {
+		return nil, err
+	}
 	actionSchema, err := buildMacroActionSchema(tools)
 	if err != nil {
 		return nil, err
@@ -116,6 +120,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			System:      macroSystemPrompt(),
 			Prompt:      prompt,
 			JSONSchema:  actionSchema,
+			Tools:       modelTools,
 			Temperature: macro.directives.Temperature,
 			MaxTokens:   macro.directives.MaxTokens,
 		})
@@ -124,11 +129,23 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			i.incrementMetric("ai_model_request_errors_total", 1)
 			return nil, fmt.Errorf("%s model request failed: %w", macro.Name(), err)
 		}
-		i.tracef("%s raw macro response: %s", macro.Name(), response.Text)
+		var action macroAction
+		if response.ToolCall != nil {
+			i.tracef("%s native macro tool call: %s with %s", macro.Name(), response.ToolCall.Name, jsonString(response.ToolCall.Arguments))
+			action = macroAction{
+				Action: "call",
+				Call: &toolInvocation{
+					Name:      response.ToolCall.Name,
+					Arguments: response.ToolCall.Arguments,
+				},
+			}
+		} else {
+			i.tracef("%s raw macro response: %s", macro.Name(), response.Text)
 
-		action, err := decodeAIMacroAction(response.Text)
-		if err != nil {
-			return nil, fmt.Errorf("%s returned invalid macro action: %w", macro.Name(), err)
+			action, err = decodeAIMacroAction(response.Text)
+			if err != nil {
+				return nil, fmt.Errorf("%s returned invalid macro action: %w", macro.Name(), err)
+			}
 		}
 
 		switch action.Action {

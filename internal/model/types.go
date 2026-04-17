@@ -20,12 +20,25 @@ type Request struct {
 	System      string
 	Prompt      string
 	JSONSchema  map[string]any
+	Tools       []ToolDefinition
 	Temperature *float64
 	MaxTokens   *int
 }
 
 type Response struct {
-	Text string
+	Text     string
+	ToolCall *ToolCall
+}
+
+type ToolDefinition struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
+type ToolCall struct {
+	Name      string
+	Arguments map[string]any
 }
 
 type Client interface {

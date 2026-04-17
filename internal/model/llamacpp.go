@@ -25,12 +25,13 @@ func newLlamaCPPClient(config Config) Client {
 }
 
 type llamaChatRequest struct {
-	Model          string         `json:"model,omitempty"`
-	Messages       []llamaMessage `json:"messages"`
-	MaxTokens      int            `json:"max_tokens,omitempty"`
-	Temperature    float64        `json:"temperature"`
-	Stream         bool           `json:"stream"`
-	ResponseFormat map[string]any `json:"response_format,omitempty"`
+	Model          string                   `json:"model,omitempty"`
+	Messages       []llamaMessage           `json:"messages"`
+	Tools          []providerToolDefinition `json:"tools,omitempty"`
+	MaxTokens      int                      `json:"max_tokens,omitempty"`
+	Temperature    float64                  `json:"temperature"`
+	Stream         bool                     `json:"stream"`
+	ResponseFormat map[string]any           `json:"response_format,omitempty"`
 }
 
 type llamaMessage struct {
@@ -40,7 +41,10 @@ type llamaMessage struct {
 
 type llamaChatResponse struct {
 	Choices []struct {
-		Message llamaMessage `json:"message"`
+		Message struct {
+			Content   any                `json:"content"`
+			ToolCalls []providerToolCall `json:"tool_calls"`
+		} `json:"message"`
 	} `json:"choices"`
 }
 
@@ -55,9 +59,9 @@ type llamaCompletionResponse struct {
 }
 
 func (c *llamaCPPClient) Generate(ctx context.Context, request Request) (Response, error) {
-	text, err := c.generateChatCompletion(ctx, request)
+	response, err := c.generateChatCompletion(ctx, request)
 	if err == nil {
-		return Response{Text: text}, nil
+		return response, nil
 	}
 
 	fallbackText, fallbackErr := c.generateCompletion(ctx, request)
@@ -68,7 +72,7 @@ func (c *llamaCPPClient) Generate(ctx context.Context, request Request) (Respons
 	return Response{}, fmt.Errorf("llama.cpp chat request failed: %v; completion fallback failed: %v", err, fallbackErr)
 }
 
-func (c *llamaCPPClient) generateChatCompletion(ctx context.Context, request Request) (string, error) {
+func (c *llamaCPPClient) generateChatCompletion(ctx context.Context, request Request) (Response, error) {
 	messages := make([]llamaMessage, 0, 2)
 	if strings.TrimSpace(request.System) != "" {
 		messages = append(messages, llamaMessage{Role: "system", Content: request.System})
@@ -78,6 +82,7 @@ func (c *llamaCPPClient) generateChatCompletion(ctx context.Context, request Req
 	payload := llamaChatRequest{
 		Model:          c.config.Model,
 		Messages:       messages,
+		Tools:          requestTools(request),
 		MaxTokens:      c.maxTokens(request),
 		Temperature:    c.temperature(request),
 		Stream:         false,
@@ -86,39 +91,55 @@ func (c *llamaCPPClient) generateChatCompletion(ctx context.Context, request Req
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal llama.cpp chat request: %w", err)
+		return Response{}, fmt.Errorf("marshal llama.cpp chat request: %w", err)
 	}
 
 	endpoint := strings.TrimRight(c.config.Endpoint, "/") + "/v1/chat/completions"
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build llama.cpp chat request: %w", err)
+		return Response{}, fmt.Errorf("build llama.cpp chat request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 
 	httpResponse, err := c.httpClient.Do(httpRequest)
 	if err != nil {
-		return "", fmt.Errorf("llama.cpp chat request failed: %w", err)
+		return Response{}, fmt.Errorf("llama.cpp chat request failed: %w", err)
 	}
 	defer httpResponse.Body.Close()
 
 	responseBody, err := io.ReadAll(httpResponse.Body)
 	if err != nil {
-		return "", fmt.Errorf("read llama.cpp chat response: %w", err)
+		return Response{}, fmt.Errorf("read llama.cpp chat response: %w", err)
 	}
 	if httpResponse.StatusCode >= 400 {
-		return "", fmt.Errorf("llama.cpp chat returned %s: %s", httpResponse.Status, strings.TrimSpace(string(responseBody)))
+		return Response{}, fmt.Errorf("llama.cpp chat returned %s: %s", httpResponse.Status, strings.TrimSpace(string(responseBody)))
 	}
 
 	var response llamaChatResponse
 	if err := json.Unmarshal(responseBody, &response); err != nil {
-		return "", fmt.Errorf("decode llama.cpp chat response: %w", err)
+		return Response{}, fmt.Errorf("decode llama.cpp chat response: %w", err)
 	}
-	if len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
-		return "", fmt.Errorf("llama.cpp chat returned empty content")
+	if len(response.Choices) == 0 {
+		return Response{}, fmt.Errorf("llama.cpp chat returned empty content")
 	}
 
-	return response.Choices[0].Message.Content, nil
+	toolCall, err := firstToolCall(response.Choices[0].Message.ToolCalls)
+	if err != nil {
+		return Response{}, err
+	}
+	if toolCall != nil {
+		return Response{ToolCall: toolCall}, nil
+	}
+
+	text, err := openAIMessageText(response.Choices[0].Message.Content)
+	if err != nil {
+		return Response{}, err
+	}
+	if strings.TrimSpace(text) == "" {
+		return Response{}, fmt.Errorf("llama.cpp chat returned empty content")
+	}
+
+	return Response{Text: text}, nil
 }
 
 func (c *llamaCPPClient) generateCompletion(ctx context.Context, request Request) (string, error) {

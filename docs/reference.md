@@ -271,6 +271,8 @@ Notes:
 - `json(value)`: JSON-encode a value
 - `json_parse(text)`: parse JSON text into vibelang values
 - `json_pretty(value, indent="  ")`: encode a value as indented JSON
+- `yaml_parse(text)`: parse YAML text into vibelang values
+- `yaml_stringify(value)`: encode a value as YAML
 - `set(values)`: create a set from a list
 - `set_values(set)`: return sorted set values as a list
 - `set_has(set, value)`: membership check for sets
@@ -317,6 +319,8 @@ Notes:
 - `query_decode(query)`: decode a query string into strings and lists
 - `url_parse(raw_url)`: parse a URL into scheme, host, hostname, port, path, query, and fragment fields
 - `url_build(parts)`: build a URL string from parsed parts
+- `cookie_parse(header)`: parse a `Cookie` header into a dict of cookie values
+- `cookie_build(name, value, attrs={})`: build one `Set-Cookie` header value; supported attrs include `path`, `domain`, `max_age`, `secure`, `http_only`, `same_site`, `expires`, and `partitioned`
 - `html_escape(text)`: escape text for HTML
 - `template_render(template, data)`: replace `${path}` placeholders from nested dict data
 - `sha256(text)`: return the hex SHA-256 digest of a string
@@ -324,6 +328,7 @@ Notes:
 - `regex_find_all(pattern, text)`: return regex matches as a list
 - `regex_replace(pattern, text, replacement)`: replace regex matches
 - `read_json(path)`: read and decode JSON
+- `read_yaml(path)`: read and decode YAML
 - `write_file(path, content)`: write a UTF-8 text file and return the path
 - `copy_file(source, destination)`: copy a file and return the destination path
 - `move_file(source, destination)`: move or rename a file and return the destination path
@@ -331,6 +336,7 @@ Notes:
 - `make_dir(path)`: create a directory tree and return the path
 - `append_file(path, content)`: append text to a file and return the path
 - `write_json(path, value)`: write formatted JSON and return the path
+- `write_yaml(path, value)`: write YAML and return the path
 - `sqrt(value)`: square root
 - `pow(base, exponent)`: exponentiation helper
 - `abs(value)`: absolute value
@@ -417,6 +423,7 @@ Behavior:
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Helper call schemas are specialized per tool, so models see exact helper names plus the allowed and required argument fields for each callable.
+- When a backend supports native tools, `vibelang` also sends the helper catalog through the provider `tools` field and accepts native `tool_calls` responses in addition to the JSON action envelope.
 - Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
 - Per-body directives can also route a specific function or macro through a different backend endpoint, model, API-key env, or timeout without changing the global CLI flags.
 - `@cache true` memoizes successful AI function and macro results for identical inputs and directives.

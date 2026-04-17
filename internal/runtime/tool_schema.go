@@ -1,6 +1,9 @@
 package runtime
 
-import "vibelang/internal/ast"
+import (
+	"vibelang/internal/ast"
+	"vibelang/internal/model"
+)
 
 func buildToolCallSchema(tools []ToolSpec) (map[string]any, error) {
 	variants := make([]any, 0, len(tools))
@@ -56,4 +59,20 @@ func buildToolArgumentSchema(params []ast.Param) (map[string]any, error) {
 		schema["required"] = required
 	}
 	return schema, nil
+}
+
+func buildModelToolDefinitions(tools []ToolSpec) ([]model.ToolDefinition, error) {
+	definitions := make([]model.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		parameters, err := buildToolArgumentSchema(tool.Params)
+		if err != nil {
+			return nil, err
+		}
+		definitions = append(definitions, model.ToolDefinition{
+			Name:        tool.Name,
+			Description: tool.Body,
+			Parameters:  parameters,
+		})
+	}
+	return definitions, nil
 }
