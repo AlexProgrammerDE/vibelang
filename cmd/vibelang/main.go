@@ -68,7 +68,7 @@ func main() {
 		}
 	}
 
-	client, err := model.NewClient(model.Config{
+	modelConfig := model.Config{
 		Provider:       *provider,
 		Endpoint:       *endpoint,
 		Model:          *modelName,
@@ -77,7 +77,9 @@ func main() {
 		HasTemperature: true,
 		MaxTokens:      *maxTokens,
 		Timeout:        *timeout,
-	})
+	}
+
+	client, err := model.NewClient(modelConfig)
 	if err != nil {
 		fatalf("configure model client: %v", err)
 	}
@@ -89,6 +91,7 @@ func main() {
 
 	interpreter := runtime.NewInterpreter(runtime.Config{
 		Model:        client,
+		ModelConfig:  modelConfig,
 		Stdout:       os.Stdout,
 		Trace:        traceWriter,
 		MaxAISteps:   *maxSteps,

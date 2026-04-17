@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -44,6 +47,7 @@ type sseEvent struct {
 
 func registerHTTPServerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("route_match", builtinRouteMatch, "dict{matched: bool, params: dict[string, string]}", "Match a request path against a route pattern like /users/:id or /assets/*path and return matched plus any extracted params.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "request_path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("mime_type", builtinMimeType, "string", "Guess the HTTP content type for a file path, including application/wasm for WebAssembly modules.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "sse_event",
 		call: builtinSSEEvent,
@@ -109,6 +113,28 @@ func registerHTTPServerBuiltins(interpreter *Interpreter) {
 		bindArgs: true,
 	})
 	registerBuiltin(interpreter, &builtinFunction{
+		name: "http_static_response",
+		call: builtinHTTPStaticResponse,
+		tool: &ToolSpec{
+			Name:       "http_static_response",
+			ReturnType: ast.TypeRef{Expr: "dict{status: int, headers: dict[string, string], body: string}"},
+			Body:       "Serve one static file from a directory using request.path. Prevent directory traversal, infer Content-Type including application/wasm, and fall back to index_file for directories.",
+			Params: []ast.Param{
+				{Name: "root", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "request", Type: ast.TypeRef{Expr: "dict"}},
+				{Name: "index_file", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"index.html\""},
+				{Name: "headers", Type: ast.TypeRef{Expr: "dict[string, string]"}, DefaultText: "{}"},
+				{Name: "cache_control", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"\""},
+			},
+		},
+		defaults: map[string]any{
+			"index_file":    "index.html",
+			"headers":       map[string]any{},
+			"cache_control": "",
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
 		name: "http_server_stop",
 		call: builtinHTTPServerStop,
 		tool: &ToolSpec{
@@ -147,6 +173,17 @@ func builtinRouteMatch(_ context.Context, _ *Interpreter, args []any) (any, erro
 	}, nil
 }
 
+func builtinMimeType(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("mime_type", args, 1); err != nil {
+		return nil, err
+	}
+	filePath, err := requireString("mime_type", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	return detectStaticContentType(filePath, nil), nil
+}
+
 func builtinSSEEvent(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("sse_event", args, 4); err != nil {
 		return nil, err
@@ -174,6 +211,37 @@ func builtinSSEEvent(_ context.Context, _ *Interpreter, args []any) (any, error)
 		"id":       id,
 		"retry_ms": retryMS,
 	}, nil
+}
+
+func builtinHTTPStaticResponse(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("http_static_response", args, 5); err != nil {
+		return nil, err
+	}
+	root, err := requireString("http_static_response", args[0], "root")
+	if err != nil {
+		return nil, err
+	}
+	request, ok := asMap(args[1])
+	if !ok {
+		return nil, fmt.Errorf("http_static_response expects request to be a dict")
+	}
+	indexFile, err := requireString("http_static_response", args[2], "index_file")
+	if err != nil {
+		return nil, err
+	}
+	headers, err := requireStringMap("http_static_response", args[3], "headers")
+	if err != nil {
+		return nil, err
+	}
+	cacheControl, err := requireString("http_static_response", args[4], "cache_control")
+	if err != nil {
+		return nil, err
+	}
+	requestPath, err := requireString("http_static_response", request["path"], "request.path")
+	if err != nil {
+		return nil, err
+	}
+	return buildHTTPStaticResponse(root, requestPath, indexFile, headers, cacheControl)
 }
 
 func builtinHTTPServe(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
@@ -260,6 +328,131 @@ func builtinHTTPServerStop(_ context.Context, interpreter *Interpreter, args []a
 	}
 	interpreter.incrementMetric("http_servers_stopped_total", 1)
 	return true, nil
+}
+
+func buildHTTPStaticResponse(root, requestPath, indexFile string, headers map[string]string, cacheControl string) (map[string]any, error) {
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	target, err := resolveStaticAssetPath(resolvedRoot, requestPath, indexFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return staticErrorResponse(http.StatusNotFound, "not found"), nil
+		}
+		return nil, err
+	}
+	body, err := os.ReadFile(target)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return staticErrorResponse(http.StatusNotFound, "not found"), nil
+		}
+		return nil, err
+	}
+
+	responseHeaders := canonicalizeHTTPHeaderMap(headers)
+	setDefaultHTTPHeader(responseHeaders, "Content-Type", detectStaticContentType(target, body))
+	if cacheControl != "" {
+		setDefaultHTTPHeader(responseHeaders, "Cache-Control", cacheControl)
+	}
+	return map[string]any{
+		"status":  int64(http.StatusOK),
+		"headers": anyHTTPHeaderMap(responseHeaders),
+		"body":    string(body),
+	}, nil
+}
+
+func resolveStaticAssetPath(root, requestPath, indexFile string) (string, error) {
+	cleanRoot := filepath.Clean(root)
+	cleanRequestPath := path.Clean("/" + strings.TrimSpace(requestPath))
+	relative := strings.TrimPrefix(cleanRequestPath, "/")
+	target := filepath.Join(cleanRoot, filepath.FromSlash(relative))
+
+	if cleanRequestPath == "/" || strings.HasSuffix(requestPath, "/") {
+		target = filepath.Join(target, indexFile)
+	}
+
+	resolvedTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if !isWithinStaticRoot(cleanRoot, resolvedTarget) {
+		return "", os.ErrNotExist
+	}
+
+	info, err := os.Stat(resolvedTarget)
+	if err == nil && info.IsDir() {
+		resolvedTarget = filepath.Join(resolvedTarget, indexFile)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	if !isWithinStaticRoot(cleanRoot, resolvedTarget) {
+		return "", os.ErrNotExist
+	}
+	return resolvedTarget, nil
+}
+
+func isWithinStaticRoot(root, candidate string) bool {
+	root = filepath.Clean(root)
+	candidate = filepath.Clean(candidate)
+	if candidate == root {
+		return true
+	}
+	return strings.HasPrefix(candidate, root+string(os.PathSeparator))
+}
+
+func detectStaticContentType(filePath string, body []byte) string {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".html", ".htm":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js", ".mjs":
+		return "text/javascript; charset=utf-8"
+	case ".json":
+		return "application/json; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".wasm":
+		return "application/wasm"
+	}
+
+	guessed := mime.TypeByExtension(strings.ToLower(filepath.Ext(filePath)))
+	if guessed != "" {
+		if strings.HasPrefix(guessed, "text/") && !strings.Contains(guessed, "charset=") {
+			return guessed + "; charset=utf-8"
+		}
+		return guessed
+	}
+	if len(body) > 0 {
+		sample := body
+		if len(sample) > 512 {
+			sample = sample[:512]
+		}
+		return http.DetectContentType(sample)
+	}
+	return "application/octet-stream"
+}
+
+func staticErrorResponse(status int, body string) map[string]any {
+	return map[string]any{
+		"status": int64(status),
+		"headers": map[string]any{
+			"Content-Type": "text/plain; charset=utf-8",
+		},
+		"body": body,
+	}
+}
+
+func anyHTTPHeaderMap(headers map[string]string) map[string]any {
+	converted := make(map[string]any, len(headers))
+	for key, value := range headers {
+		converted[key] = value
+	}
+	return converted
 }
 
 func startHTTPServer(interpreter *Interpreter, address string, readTimeoutMS, writeTimeoutMS int64, handler http.HandlerFunc) (map[string]any, error) {

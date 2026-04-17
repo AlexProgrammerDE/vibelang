@@ -10,9 +10,14 @@ type aiDirectiveConfig struct {
 	Temperature *float64
 	MaxTokens   *int
 	MaxSteps    *int
+	TimeoutMS   *int
 	Cache       *bool
 	AllowTools  map[string]struct{}
 	DenyTools   map[string]struct{}
+	Provider    string
+	Model       string
+	Endpoint    string
+	APIKeyEnv   string
 }
 
 func parseAIBody(raw string) (aiDirectiveConfig, string, error) {
@@ -70,6 +75,13 @@ func applyAIDirective(config *aiDirectiveConfig, line string, lineNumber int) er
 		}
 		config.MaxSteps = &parsed
 		return nil
+	case "timeout_ms":
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("directive line %d has invalid @timeout_ms value %q", lineNumber, value)
+		}
+		config.TimeoutMS = &parsed
+		return nil
 	case "cache":
 		parsed, err := parseDirectiveBool(value)
 		if err != nil {
@@ -90,6 +102,30 @@ func applyAIDirective(config *aiDirectiveConfig, line string, lineNumber int) er
 			return err
 		}
 		config.DenyTools = names
+		return nil
+	case "provider":
+		if !isDirectiveIdentifier(value) && value != "openai-compatible" {
+			return fmt.Errorf("directive line %d has invalid @provider value %q", lineNumber, value)
+		}
+		config.Provider = value
+		return nil
+	case "model":
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("directive line %d has invalid @model value %q", lineNumber, value)
+		}
+		config.Model = strings.TrimSpace(value)
+		return nil
+	case "endpoint":
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("directive line %d has invalid @endpoint value %q", lineNumber, value)
+		}
+		config.Endpoint = strings.TrimSpace(value)
+		return nil
+	case "api_key_env":
+		if !isDirectiveIdentifier(value) {
+			return fmt.Errorf("directive line %d has invalid @api_key_env value %q", lineNumber, value)
+		}
+		config.APIKeyEnv = value
 		return nil
 	default:
 		return fmt.Errorf("directive line %d uses unknown AI directive @%s", lineNumber, name)
@@ -162,4 +198,8 @@ func (c aiDirectiveConfig) allowsTool(name string) bool {
 		return false
 	}
 	return true
+}
+
+func (c aiDirectiveConfig) customModelRoute() bool {
+	return c.TimeoutMS != nil || c.Provider != "" || c.Model != "" || c.Endpoint != "" || c.APIKeyEnv != ""
 }

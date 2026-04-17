@@ -110,9 +110,14 @@ Supported directives:
 - `@temperature <float>`: override sampling temperature for this function or macro
 - `@max_tokens <int>`: override the per-step token budget
 - `@max_steps <int>`: override the helper-call loop limit
+- `@timeout_ms <int>`: override the backend request timeout used to construct the model client for this body
 - `@cache <bool>`: opt into memoizing successful AI results for identical inputs within one interpreter run
 - `@tools name_a, name_b`: allow only the listed helper functions
 - `@deny_tools name_a, name_b`: hide specific helper functions from this body
+- `@provider <name>`: route this body through a different provider such as `ollama`, `llamacpp`, `openai`, `groq`, or `openai-compatible`
+- `@model <name>`: override the backend model name for this body
+- `@endpoint <url>`: override the backend base URL for this body
+- `@api_key_env <ENV_NAME>`: load a provider API key from one environment variable for this body
 
 ### Statements
 
@@ -363,6 +368,8 @@ Notes:
 - `wait_group_add(wait_group, delta=1)`: add to the counter and return the new value
 - `wait_group_done(wait_group)`: decrement the counter and return the new value
 - `wait_group_wait(wait_group, timeout_ms=-1)`: wait for the counter to reach zero
+- `mime_type(path)`: guess the HTTP content type for a file path, including `application/wasm`
+- `http_static_response(root, request, index_file="index.html", headers={}, cache_control="")`: serve one file from a static directory using `request["path"]`
 - `http_serve(address, handler, read_timeout_ms=15000, write_timeout_ms=15000)`: start an HTTP server and return `{handle, address}`
 - `http_serve_routes(address, routes, fallback=none, read_timeout_ms=15000, write_timeout_ms=15000)`: start an HTTP server backed by ordered route dicts containing `pattern`, `handler`, and optional `methods`
 - `http_server_stop(handle, timeout_ms=5000)`: gracefully stop a server
@@ -383,6 +390,7 @@ HTTP handler response notes:
 - Response dicts may use exactly one of `body`, `html`, `json`, `sse`, or `sse_channel`.
 - `sse` accepts one SSE event, a list of SSE events, or plain strings that become `data:` frames.
 - `sse_channel` accepts a channel handle whose values are streamed as SSE frames until the channel closes or the client disconnects.
+- `http_static_response` prevents directory traversal, serves directory indexes, and infers content types for frontend assets including `.wasm`.
 - SSE responses default to `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache`, and `Connection: keep-alive`.
 
 Bundled modules:
@@ -410,6 +418,7 @@ Behavior:
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Helper call schemas are specialized per tool, so models see exact helper names plus the allowed and required argument fields for each callable.
 - Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
+- Per-body directives can also route a specific function or macro through a different backend endpoint, model, API-key env, or timeout without changing the global CLI flags.
 - `@cache true` memoizes successful AI function and macro results for identical inputs and directives.
 - Recursive helper re-entry through the active AI stack is rejected and fed back into the next model step through tool history.
 - Repeating the same rejected helper call now fails fast instead of burning more model steps.

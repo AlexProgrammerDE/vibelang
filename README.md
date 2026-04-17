@@ -26,7 +26,9 @@
 - Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
+- Lets one AI body route itself to a different backend with `@provider`, `@model`, `@endpoint`, `@api_key_env`, and `@timeout_ms`, so local Gemma can coexist with remote OpenAI-compatible calls in one program.
 - Starts AI-backed HTTP servers, including ordered route tables and Server-Sent Event streaming backed by native channel handles.
+- Serves deterministic static frontend assets, including HTML, JS, CSS, JSON, SVG, and `.wasm`, with correct HTTP content types through `http_static_response` and `mime_type`.
 - Exposes deterministic tool introspection so programs can inspect the live helper catalog through `tool_catalog` and `tool_describe`.
 - Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
@@ -127,6 +129,18 @@ def slugify(title: string) -> string:
     Convert ${title} into a lowercase URL slug.
     Replace whitespace runs with "-".
     Remove punctuation and collapse repeated "-" runs.
+```
+
+Bodies can also pin themselves to a different model route when one program needs both local and remote execution:
+
+```python
+def summarize_release(changes: list[string]) -> string:
+    @provider openai-compatible
+    @endpoint https://models.example.com/v1
+    @model hosted-gemma
+    @api_key_env VIBE_REMOTE_API_KEY
+    @timeout_ms 10000
+    Summarize ${json_pretty(changes)} in one crisp paragraph.
 ```
 
 Slices are first-class expressions:
@@ -289,6 +303,21 @@ print(response["status"])
 http_server_stop(server["handle"])
 ```
 
+Static frontend bundles can stay deterministic and still plug into the same HTTP surface:
+
+```python
+site = join_path([cwd(), "site"])
+make_dir(join_path([site, "pkg"]))
+write_file(join_path([site, "index.html"]), "<h1>vibelang</h1>")
+write_file(join_path([site, "pkg", "app.wasm"]), "\u0000asm")
+
+home = http_static_response(site, {"path": "/"}, cache_control="public, max-age=60")
+wasm = http_static_response(site, {"path": "/pkg/app.wasm"})
+
+print(home["headers"]["Content-Type"])
+print(wasm["headers"]["Content-Type"])
+```
+
 SSE handlers can stream channel-backed event feeds:
 
 ```python
@@ -397,7 +426,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `http_request_json`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
-- Services: `route_match`, `http_serve`, `http_serve_routes`, `http_server_stop`
+- Services: `route_match`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`
 - Runtime introspection: `tool_catalog`, `tool_describe`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
 

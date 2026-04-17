@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"vibelang/internal/model"
 	"vibelang/internal/parser"
@@ -862,6 +863,80 @@ print(normalize("berlin"))
 	}
 }
 
+func TestInterpreterAIDirectivesRouteModelClientAndReuseConfiguredClient(t *testing.T) {
+	t.Setenv("VIBE_REMOTE_API_KEY", "secret-token")
+
+	source := `def summarize(city: string) -> string:
+    @provider openai-compatible
+    @endpoint https://models.example.test/v1
+    @model hosted-gemma
+    @api_key_env VIBE_REMOTE_API_KEY
+    @timeout_ms 3210
+    Return a terse city summary for ${city}.
+
+print(summarize("Berlin"))
+print(summarize("Paris"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var configs []model.Config
+	var routedClient *scriptedClient
+	factory := func(config model.Config) (model.Client, error) {
+		configs = append(configs, config)
+		routedClient = &scriptedClient{
+			responses: []string{
+				`{"action":"return","value":"Berlin via hosted route"}`,
+				`{"action":"return","value":"Paris via hosted route"}`,
+			},
+		}
+		return routedClient, nil
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		ModelConfig: model.Config{
+			Provider: "ollama",
+			Model:    "gemma4",
+			Endpoint: "http://127.0.0.1:11434",
+			Timeout:  2 * time.Minute,
+		},
+		ModelFactory: factory,
+		Stdout:       &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin via hosted route\nParis via hosted route\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin via hosted route\nParis via hosted route\n", stdout.String())
+	}
+	if len(configs) != 1 {
+		t.Fatalf("expected 1 routed client construction, got %d", len(configs))
+	}
+	if configs[0].Provider != "openai-compatible" {
+		t.Fatalf("unexpected provider %#v", configs[0])
+	}
+	if configs[0].Endpoint != "https://models.example.test/v1" {
+		t.Fatalf("unexpected endpoint %#v", configs[0])
+	}
+	if configs[0].Model != "hosted-gemma" {
+		t.Fatalf("unexpected model %#v", configs[0])
+	}
+	if configs[0].APIKey != "secret-token" {
+		t.Fatalf("unexpected api key %#v", configs[0])
+	}
+	if configs[0].Timeout != 3210*time.Millisecond {
+		t.Fatalf("unexpected timeout %#v", configs[0])
+	}
+	if routedClient == nil || len(routedClient.prompts) != 2 {
+		t.Fatalf("expected reused routed client with 2 prompts")
+	}
+}
+
 func TestInterpreterAIDirectivesOverrideMaxSteps(t *testing.T) {
 	source := `def normalize(city: string) -> string:
     @max_steps 1
@@ -1460,6 +1535,50 @@ http_server_stop(server["handle"])
 	}
 	if !strings.Contains(client.prompts[0], "\"path\": \"/hello\"") {
 		t.Fatalf("prompt did not include request path:\n%s", client.prompts[0])
+	}
+}
+
+func TestInterpreterSupportsStaticHTTPResponses(t *testing.T) {
+	tempDir := t.TempDir()
+	siteDir := filepath.Join(tempDir, "site")
+	if err := os.MkdirAll(filepath.Join(siteDir, "pkg"), 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("<h1>vibelang</h1>"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "pkg", "app.wasm"), []byte{0x00, 0x61, 0x73, 0x6d}, 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	source := fmt.Sprintf(`root = %q
+
+home = http_static_response(root=root, request={"path": "/"}, cache_control="public, max-age=60")
+wasm = http_static_response(root=root, request={"path": "/pkg/app.wasm"})
+missing = http_static_response(root=root, request={"path": "/missing.txt"})
+print(home["status"])
+print(home["headers"]["Content-Type"])
+print(home["headers"]["Cache-Control"])
+print(contains(home["body"], "vibelang"))
+print(wasm["headers"]["Content-Type"])
+print(len(wasm["body"]))
+print(missing["status"])
+`, siteDir)
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "200\ntext/html; charset=utf-8\npublic, max-age=60\ntrue\napplication/wasm\n4\n404\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
 

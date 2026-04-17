@@ -1,0 +1,16 @@
+site = join_path([cwd(), ".vibe-static-site"])
+pkg = join_path([site, "pkg"])
+
+make_dir(pkg)
+write_file(join_path([site, "index.html"]), "<h1>vibelang</h1>")
+write_file(join_path([pkg, "app.wasm"]), "\u0000asm")
+
+home = http_static_response(site, {"path": "/"}, cache_control="public, max-age=60")
+wasm = http_static_response(site, {"path": "/pkg/app.wasm"})
+
+print(home["status"])
+print(home["headers"]["Content-Type"])
+print(home["headers"]["Cache-Control"])
+print(contains(home["body"], "vibelang"))
+print(wasm["headers"]["Content-Type"])
+print(len(wasm["body"]))

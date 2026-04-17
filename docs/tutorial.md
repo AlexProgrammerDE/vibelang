@@ -85,6 +85,18 @@ print(normalize_city("berlin"))
 print(cache_stats()["entries"])
 ```
 
+Directives can also route one body to a different backend without changing the process-wide CLI flags:
+
+```python
+def summarize_release(changes: list[string]) -> string:
+    @provider openai-compatible
+    @endpoint https://models.example.com/v1
+    @model hosted-gemma
+    @api_key_env VIBE_REMOTE_API_KEY
+    @timeout_ms 10000
+    Summarize ${json_pretty(changes)} in one crisp paragraph.
+```
+
 Inline prompts also work without defining a function first:
 
 ```python
@@ -196,6 +208,21 @@ def handle(request: dict) -> dict:
 
 summary = ai.summarize_payload({"route": "/demo", "status": 200})
 print(summary)
+```
+
+Static web assets can stay fully deterministic, which is useful when an AI handler renders HTML once and then serves bundled JS, CSS, or Wasm files directly:
+
+```python
+site = join_path([cwd(), "site"])
+make_dir(join_path([site, "pkg"]))
+write_file(join_path([site, "index.html"]), "<h1>vibelang</h1>")
+write_file(join_path([site, "pkg", "app.wasm"]), "\u0000asm")
+
+home = http_static_response(site, {"path": "/"}, cache_control="public, max-age=60")
+wasm = http_static_response(site, {"path": "/pkg/app.wasm"})
+
+print(home["headers"]["Content-Type"])
+print(wasm["headers"]["Content-Type"])
 ```
 
 The helper catalog is also available to deterministic code:
@@ -346,7 +373,9 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
+- Run [examples/http_static.vibe](../examples/http_static.vibe) to see deterministic static asset serving with `application/wasm` detection.
 - Run [examples/http_routes.vibe](../examples/http_routes.vibe) to see ordered route tables and route params for AI-backed servers.
+- Run [examples/model_routing.vibe](../examples/model_routing.vibe) to see one function route itself to a different model backend.
 - Run [examples/routes.vibe](../examples/routes.vibe) to validate deterministic route matching without needing a model.
 - Run [examples/socket_listener.vibe](../examples/socket_listener.vibe) to see listener-side TCP sockets built on native Go networking.
 - Run [examples/structured_outputs.vibe](../examples/structured_outputs.vibe) to see typed AI return values, optional fields, nested records, and tuples.

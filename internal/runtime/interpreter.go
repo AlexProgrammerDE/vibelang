@@ -18,6 +18,8 @@ import (
 
 type Config struct {
 	Model        model.Client
+	ModelConfig  model.Config
+	ModelFactory func(model.Config) (model.Client, error)
 	Stdout       io.Writer
 	Stderr       io.Writer
 	Trace        io.Writer
@@ -28,6 +30,9 @@ type Config struct {
 type Interpreter struct {
 	mu              sync.RWMutex
 	model           model.Client
+	modelConfig     model.Config
+	modelFactory    func(model.Config) (model.Client, error)
+	modelClients    map[string]model.Client
 	stdout          io.Writer
 	stderr          io.Writer
 	trace           io.Writer
@@ -85,9 +90,15 @@ func NewInterpreter(config Config) *Interpreter {
 	if config.MaxCallDepth == 0 {
 		config.MaxCallDepth = 8
 	}
+	if config.ModelFactory == nil {
+		config.ModelFactory = model.NewClient
+	}
 
 	interpreter := &Interpreter{
 		model:           config.Model,
+		modelConfig:     config.ModelConfig,
+		modelFactory:    config.ModelFactory,
+		modelClients:    make(map[string]model.Client),
 		stdout:          config.Stdout,
 		stderr:          config.Stderr,
 		trace:           config.Trace,
@@ -907,11 +918,12 @@ func (i *Interpreter) invokeAIFunction(ctx context.Context, function *AIFunction
 }
 
 func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string, chain []aiCallFrame, directives aiDirectiveConfig) (any, error) {
-	if i.model == nil {
-		return nil, fmt.Errorf("no model client configured")
-	}
 	if depth >= i.maxCallDepth {
 		return nil, fmt.Errorf("%s exceeded the maximum AI call depth of %d", function.Name(), i.maxCallDepth)
+	}
+	modelClient, err := i.modelClientForDirectives(directives)
+	if err != nil {
+		return nil, fmt.Errorf("%s model routing failed: %w", function.Name(), err)
 	}
 	cacheKey, cacheHit := i.maybeLookupAICache(function, instructions, args, directives)
 	if cacheHit {
@@ -935,7 +947,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			return nil, err
 		}
 
-		response, err := i.model.Generate(ctx, model.Request{
+		response, err := modelClient.Generate(ctx, model.Request{
 			System:      aiSystemPrompt(),
 			Prompt:      prompt,
 			JSONSchema:  actionSchema,

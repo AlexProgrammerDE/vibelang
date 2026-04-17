@@ -83,6 +83,16 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic static asset example
+        run: |
+          output="$(go run ./cmd/vibelang examples/http_static.vibe)"
+          expected=$'200\ntext/html; charset=utf-8\npublic, max-age=60\ntrue\napplication/wasm\n4\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected http_static.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Build and publish release artifacts
         uses: goreleaser/goreleaser-action@v7
         with:
