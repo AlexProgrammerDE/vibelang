@@ -1,0 +1,16 @@
+items = set(["alpha", "beta", "alpha"])
+items = set_add(items, "gamma")
+
+payload = json_parse("{\"service\":\"vibelang\",\"ports\":[8080,8081]}")
+pretty = json_pretty(payload)
+
+log("startup", fields={"item_count": len(items), "items": set_values(items)})
+
+otel_init_stdout(service_name="vibelang-example")
+span = otel_span_start("boot", {"service": payload["service"]})
+otel_span_event(span, "ports_loaded", {"count": len(payload["ports"])})
+otel_span_end(span, {"status": "ok"})
+otel_flush()
+
+print(json(set_values(items)))
+print(contains(pretty, "\n"))

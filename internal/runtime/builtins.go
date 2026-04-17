@@ -44,6 +44,7 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("keys", builtinKeys, "list[string]", "Return the sorted keys from a dict.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("values", builtinValues, "list", "Return the dict values in sorted-key order.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("json", builtinJSON, "string", "Encode a value as JSON.", ast.Param{Name: "value"}))
+	registerDataBuiltins(interpreter)
 	registerBuiltin(interpreter, promptToolBuiltin("cwd", builtinCWD, "string", "Return the current working directory."))
 	registerBuiltin(interpreter, promptToolBuiltin("file_exists", builtinFileExists, "bool", "Return true when the given path exists.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_file", builtinReadFile, "string", "Read a UTF-8 text file and return its contents.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
@@ -70,6 +71,7 @@ func registerBuiltins(interpreter *Interpreter) {
 	interpreter.globals.Define("pi", math.Pi)
 	interpreter.globals.Define("e", math.E)
 	registerExtendedBuiltins(interpreter)
+	registerObservabilityBuiltins(interpreter)
 }
 
 func registerBuiltin(interpreter *Interpreter, builtin *builtinFunction) {
@@ -123,6 +125,8 @@ func builtinLen(_ context.Context, _ *Interpreter, args []any) (any, error) {
 		return int64(len(value)), nil
 	case map[string]any:
 		return int64(len(value)), nil
+	case *SetValue:
+		return int64(value.Len()), nil
 	default:
 		return nil, fmt.Errorf("len does not support %s", typeName(args[0]))
 	}
@@ -673,6 +677,8 @@ func normalizeJSONValue(value any) any {
 			result = append(result, normalizeJSONValue(item))
 		}
 		return result
+	case *SetValue:
+		return normalizeJSONValue(v.Values())
 	case float64:
 		if math.Trunc(v) == v {
 			return int64(v)

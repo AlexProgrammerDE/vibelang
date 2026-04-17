@@ -19,6 +19,7 @@ import (
 type Config struct {
 	Model        model.Client
 	Stdout       io.Writer
+	Stderr       io.Writer
 	Trace        io.Writer
 	MaxAISteps   int
 	MaxCallDepth int
@@ -28,6 +29,7 @@ type Interpreter struct {
 	mu            sync.RWMutex
 	model         model.Client
 	stdout        io.Writer
+	stderr        io.Writer
 	trace         io.Writer
 	maxAISteps    int
 	maxCallDepth  int
@@ -46,6 +48,7 @@ type Interpreter struct {
 	servers       map[string]*httpServerHandle
 	metrics       map[string]int64
 	nextResource  int64
+	telemetry     *telemetryManager
 }
 
 type controlSignal int
@@ -60,6 +63,9 @@ func NewInterpreter(config Config) *Interpreter {
 	if config.Stdout == nil {
 		config.Stdout = os.Stdout
 	}
+	if config.Stderr == nil {
+		config.Stderr = os.Stderr
+	}
 	if config.MaxAISteps == 0 {
 		config.MaxAISteps = 8
 	}
@@ -70,6 +76,7 @@ func NewInterpreter(config Config) *Interpreter {
 	interpreter := &Interpreter{
 		model:         config.Model,
 		stdout:        config.Stdout,
+		stderr:        config.Stderr,
 		trace:         config.Trace,
 		maxAISteps:    config.MaxAISteps,
 		maxCallDepth:  config.MaxCallDepth,
@@ -87,6 +94,7 @@ func NewInterpreter(config Config) *Interpreter {
 		waitGroups:    make(map[string]*safeWaitGroup),
 		servers:       make(map[string]*httpServerHandle),
 		metrics:       make(map[string]int64),
+		telemetry:     newTelemetryManager(config.Stderr),
 	}
 
 	registerBuiltins(interpreter)
@@ -149,6 +157,13 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 		function := NewAIFunction(node, defaults, env.SnapshotValues())
 		env.Define(node.Name, function)
 		i.registerFunction(function)
+		return signalNone, nil
+	case *ast.MacroDef:
+		defaults, err := i.evaluateParameterDefaults(ctx, env, node.Params)
+		if err != nil {
+			return signalNone, err
+		}
+		env.Define(node.Name, NewAIMacro(node, defaults, env.SnapshotValues()))
 		return signalNone, nil
 	case *ast.ImportStmt:
 		if err := i.executeImport(ctx, env, moduleDir, node); err != nil {
@@ -380,6 +395,27 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 			})
 		}
 		return callable.Call(ctx, i, args)
+	case *ast.MacroCallExpr:
+		callee, err := i.evaluateExpression(ctx, env, node.Callee)
+		if err != nil {
+			return nil, err
+		}
+		macro, ok := callee.(MacroCallable)
+		if !ok {
+			return nil, fmt.Errorf("%s is not a macro", typeName(callee))
+		}
+		args := make([]CallArgument, 0, len(node.Arguments))
+		for _, argExpr := range node.Arguments {
+			value, err := i.evaluateExpression(ctx, env, argExpr.Value)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, CallArgument{
+				Name:  argExpr.Name,
+				Value: value,
+			})
+		}
+		return macro.Expand(ctx, i, env, args)
 	case *ast.IndexExpr:
 		left, err := i.evaluateExpression(ctx, env, node.Left)
 		if err != nil {

@@ -34,6 +34,14 @@ func Coerce(typeExpr string, value any) (any, error) {
 				return list, nil
 			}
 			return nil, fmt.Errorf("expected list, got %s", typeName(value))
+		case "set":
+			if set, ok := asSet(value); ok {
+				return set, nil
+			}
+			if list, ok := asList(value); ok {
+				return NewSetValue(list), nil
+			}
+			return nil, fmt.Errorf("expected set, got %s", typeName(value))
 		case "dict":
 			if dict, ok := asMap(value); ok {
 				return dict, nil
@@ -83,6 +91,29 @@ func Coerce(typeExpr string, value any) (any, error) {
 			result[key] = coerced
 		}
 		return result, nil
+	case "set":
+		set, ok := asSet(value)
+		if !ok {
+			if list, listOK := asList(value); listOK {
+				set = NewSetValue(list)
+			} else {
+				return nil, fmt.Errorf("expected set, got %s", typeName(value))
+			}
+		}
+		itemType := "any"
+		if len(args) > 0 {
+			itemType = args[0]
+		}
+		values := set.Values()
+		coerced := make([]any, 0, len(values))
+		for _, item := range values {
+			value, err := Coerce(itemType, item)
+			if err != nil {
+				return nil, err
+			}
+			coerced = append(coerced, value)
+		}
+		return NewSetValue(coerced), nil
 	default:
 		return value, nil
 	}

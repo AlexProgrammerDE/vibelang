@@ -43,6 +43,17 @@ type FunctionDef struct {
 func (*FunctionDef) stmtNode()         {}
 func (s *FunctionDef) LineNumber() int { return s.Line }
 
+type MacroDef struct {
+	Line       int
+	Name       string
+	Params     []Param
+	ReturnType TypeRef
+	Body       string
+}
+
+func (*MacroDef) stmtNode()         {}
+func (s *MacroDef) LineNumber() int { return s.Line }
+
 type ImportStmt struct {
 	Line  int
 	Path  string
@@ -189,6 +200,15 @@ type CallExpr struct {
 
 func (*CallExpr) exprNode()         {}
 func (e *CallExpr) LineNumber() int { return e.Line }
+
+type MacroCallExpr struct {
+	Line      int
+	Callee    Expr
+	Arguments []CallArgument
+}
+
+func (*MacroCallExpr) exprNode()         {}
+func (e *MacroCallExpr) LineNumber() int { return e.Line }
 
 type IndexExpr struct {
 	Line  int

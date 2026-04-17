@@ -271,3 +271,43 @@ reverse = items[::-1]
 		t.Fatalf("expected 5 statements, got %d", len(program.Statements))
 	}
 }
+
+func TestParseMacrosAndMacroCalls(t *testing.T) {
+	source := `macro double_expr(value: int) -> int:
+    Return the vibelang expression that doubles ${value}.
+
+result = @double_expr(21)
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(program.Statements))
+	}
+
+	macro, ok := program.Statements[0].(*ast.MacroDef)
+	if !ok {
+		t.Fatalf("expected MacroDef, got %T", program.Statements[0])
+	}
+
+	if macro.Name != "double_expr" {
+		t.Fatalf("expected macro name double_expr, got %q", macro.Name)
+	}
+
+	assign, ok := program.Statements[1].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[1])
+	}
+
+	call, ok := assign.Value.(*ast.MacroCallExpr)
+	if !ok {
+		t.Fatalf("expected MacroCallExpr, got %T", assign.Value)
+	}
+
+	if len(call.Arguments) != 1 {
+		t.Fatalf("expected 1 macro argument, got %d", len(call.Arguments))
+	}
+}

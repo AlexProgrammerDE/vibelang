@@ -4,6 +4,7 @@
 
 - A `.vibe` file is parsed into an AST and executed top to bottom.
 - `def` statements register AI-backed functions.
+- `macro` statements register AI-backed expression macros.
 - `import` statements load other `.vibe` files into isolated module scopes.
 - Inline `* prompt` expressions execute AI work directly at the statement site.
 - Regular statements are executed by the interpreter.
@@ -27,6 +28,25 @@ Notes:
 - AI functions capture surrounding non-function values at definition time by value, so later list and dict mutations do not silently change prompt bodies.
 - Parameter and return types are optional. Omitted types default to `any`.
 - Parameters may declare default values. As in Python, required parameters must come before defaulted parameters.
+
+### Macro Definition
+
+```python
+macro name(param: type) -> return_type:
+    Return one valid vibelang expression for the desired expansion.
+```
+
+```python
+result = @name(42)
+```
+
+Notes:
+
+- Macro bodies are also raw text and are executed by the local model.
+- A macro must expand to exactly one valid vibelang expression source string.
+- The expanded expression is then parsed and evaluated in the caller's environment.
+- Macro prompts can use `${...}` interpolation just like AI functions.
+- Macros can call helper functions through the same JSON tool-call loop as AI functions.
 
 ### Module Imports
 
@@ -71,6 +91,7 @@ Notes:
 
 Supported statements:
 
+- macro definition: `macro name(param: type) -> type:`
 - module import: `import "path" as name`, `from "path" import item`
 - assignment: `name = expression`
 - index assignment: `items[0] = "updated"`
@@ -86,6 +107,7 @@ Supported statements:
 Supported expressions:
 
 - identifiers
+- macro expansion calls: `@build_value(arg1, name="Ada")`
 - inline prompt expressions: `* do something with ${name}`
 - literals: strings, integers, floats, `true`, `false`, `none`
 - list literals: `[1, 2, 3]`
@@ -117,8 +139,10 @@ Built-in type names:
 - `bool`
 - `none`
 - `list`
+- `set`
 - `dict`
 - `list[T]`
+- `set[T]`
 - `dict[T]`
 - `dict[K, V]`
 
@@ -138,6 +162,16 @@ The runtime coerces model outputs to the declared return type when possible.
 - `keys(dict)`: return sorted dict keys
 - `values(dict)`: return dict values in sorted-key order
 - `json(value)`: JSON-encode a value
+- `json_parse(text)`: parse JSON text into vibelang values
+- `json_pretty(value, indent="  ")`: encode a value as indented JSON
+- `set(values)`: create a set from a list
+- `set_values(set)`: return sorted set values as a list
+- `set_has(set, value)`: membership check for sets
+- `set_add(set, value)`: return a new set with one added value
+- `set_remove(set, value)`: return a new set with one removed value
+- `set_union(left, right)`: union of two sets
+- `set_intersection(left, right)`: intersection of two sets
+- `set_difference(left, right)`: difference of two sets
 - `cwd()`: return the current working directory
 - `glob(pattern)`: return sorted matches for a glob pattern
 - `file_exists(path)`: return whether a path exists
@@ -194,6 +228,12 @@ The runtime coerces model outputs to the declared return type when possible.
 - `wait_group_wait(wait_group, timeout_ms=-1)`: wait for the counter to reach zero
 - `http_serve(address, handler, read_timeout_ms=15000, write_timeout_ms=15000)`: start an HTTP server and return `{handle, address}`
 - `http_server_stop(handle, timeout_ms=5000)`: gracefully stop a server
+- `log(message, level="info", fields={})`: emit one structured JSON log record to stderr
+- `otel_init_stdout(service_name="vibelang", pretty=true)`: configure stdout OpenTelemetry tracing to stderr
+- `otel_span_start(name, attributes={})`: start a span and return a handle
+- `otel_span_event(span, name, attributes={})`: add an event to a span
+- `otel_span_end(span, attributes={})`: finish a span
+- `otel_flush()`: flush pending telemetry exports
 - `metrics_snapshot()`: return interpreter counters such as AI requests, tool calls, tasks, and HTTP traffic
 - `pi`, `e`: math constants exposed as top-level values
 
@@ -221,6 +261,24 @@ Behavior:
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Helper calls are limited by `--max-steps`.
 - Nested AI execution is limited by `--max-depth`.
+
+## AI Macro Protocol
+
+Each AI-backed macro is executed in a loop. The model must emit one JSON object in one of these forms:
+
+```json
+{"action":"expand","source":"range(start=0, stop=10, step=2)"}
+```
+
+```json
+{"action":"call","call":{"name":"json_parse","arguments":{"text":"{\"ok\":true}"}}}
+```
+
+Behavior:
+
+- `expand` ends the macro and returns one expression source string.
+- The interpreter parses that source as a normal expression and evaluates it in the caller environment.
+- `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 
 ## CLI
 

@@ -71,6 +71,9 @@ func (e *Environment) collectVisibleValues(values map[string]any) {
 		if _, ok := value.(Callable); ok {
 			continue
 		}
+		if _, ok := value.(MacroCallable); ok {
+			continue
+		}
 		values[name] = cloneValue(value)
 	}
 }

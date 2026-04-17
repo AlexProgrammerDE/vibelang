@@ -28,6 +28,20 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Parse example programs
+        run: |
+          go run ./cmd/vibelang --check examples/hello.vibe
+          go run ./cmd/vibelang --check examples/keyword_args.vibe
+          go run ./cmd/vibelang --check examples/macros.vibe
+          go run ./cmd/vibelang --check examples/observability.vibe
+          go run ./cmd/vibelang --check examples/tool_chain.vibe
+          go run ./cmd/vibelang --check examples/pi_file.vibe
+          go run ./cmd/vibelang --check examples/stdlib.vibe
+          go run ./cmd/vibelang --check examples/modules/main.vibe
+          go run ./cmd/vibelang --check examples/ops.vibe
+          go run ./cmd/vibelang --check examples/concurrency.vibe
+          go run ./cmd/vibelang --check examples/http_server.vibe
+
       - name: Build and publish release artifacts
         uses: goreleaser/goreleaser-action@v6
         with:

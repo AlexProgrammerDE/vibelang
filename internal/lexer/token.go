@@ -9,6 +9,7 @@ const (
 	TokenPrompt     TokenKind = "prompt"
 
 	TokenDef      TokenKind = "def"
+	TokenMacro    TokenKind = "macro"
 	TokenImport   TokenKind = "import"
 	TokenFrom     TokenKind = "from"
 	TokenAs       TokenKind = "as"
@@ -44,6 +45,7 @@ const (
 	TokenStar     TokenKind = "*"
 	TokenSlash    TokenKind = "/"
 	TokenPercent  TokenKind = "%"
+	TokenAt       TokenKind = "@"
 	TokenEq       TokenKind = "=="
 	TokenNotEq    TokenKind = "!="
 	TokenLT       TokenKind = "<"
@@ -54,6 +56,7 @@ const (
 
 var keywords = map[string]TokenKind{
 	"def":      TokenDef,
+	"macro":    TokenMacro,
 	"import":   TokenImport,
 	"from":     TokenFrom,
 	"as":       TokenAs,

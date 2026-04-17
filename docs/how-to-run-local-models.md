@@ -33,7 +33,7 @@ Useful flags:
 - `--check`: parse the program and exit before contacting the model.
 - `--trace`: inspect raw model responses and helper calls.
 
-`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/stdlib.vibe` and `examples/ops.vibe` cover the broader standard library.
+`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/macros.vibe` covers AI macro expansion. `examples/observability.vibe` covers sets, JSON text helpers, structured logs, and OpenTelemetry tracing. `examples/stdlib.vibe` and `examples/ops.vibe` cover the broader deterministic standard library.
 
 ## Run With llama.cpp
 
@@ -74,6 +74,7 @@ These settings usually help:
 - lower `--temperature`
 - rerun with `--trace`
 - tighten the function prompt so it asks for one specific output shape
+- for macros, explicitly ask for "one valid vibelang expression" rather than prose
 
 ### The model hallucinates helper names
 
@@ -87,3 +88,4 @@ These settings usually help:
 - declare parameter and return types
 - tell the model exactly what the return value should look like
 - prefer smaller, single-purpose functions over broad prompts
+- for macros, make the prompt say whether the expansion should produce a `list`, `dict`, `string`, or another concrete type

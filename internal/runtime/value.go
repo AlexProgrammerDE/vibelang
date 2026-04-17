@@ -34,6 +34,10 @@ func stringify(value any) string {
 		return jsonString(v)
 	case Callable:
 		return fmt.Sprintf("<function %s>", v.Name())
+	case MacroCallable:
+		return fmt.Sprintf("<macro %s>", v.Name())
+	case *SetValue:
+		return fmt.Sprintf("set(%s)", jsonString(v.Values()))
 	default:
 		return fmt.Sprint(v)
 	}
@@ -65,6 +69,10 @@ func typeName(value any) string {
 		return "dict"
 	case Callable:
 		return "function"
+	case MacroCallable:
+		return "macro"
+	case *SetValue:
+		return "set"
 	default:
 		return reflect.TypeOf(value).String()
 	}
@@ -88,6 +96,8 @@ func truthy(value any) bool {
 		return len(v) > 0
 	case map[string]any:
 		return len(v) > 0
+	case *SetValue:
+		return v.Len() > 0
 	default:
 		return true
 	}
@@ -156,6 +166,8 @@ func cloneValue(value any) any {
 			cloned[key] = cloneValue(item)
 		}
 		return cloned
+	case *SetValue:
+		return v.Clone()
 	default:
 		return value
 	}
@@ -182,6 +194,8 @@ func iterableValues(value any) ([]any, error) {
 			result = append(result, key)
 		}
 		return result, nil
+	case *SetValue:
+		return v.Values(), nil
 	default:
 		return nil, fmt.Errorf("value of type %s is not iterable", typeName(value))
 	}
@@ -201,6 +215,8 @@ func containsValue(container, needle any) (bool, error) {
 	case map[string]any:
 		_, ok := v[stringify(needle)]
 		return ok, nil
+	case *SetValue:
+		return v.Has(needle), nil
 	default:
 		return false, fmt.Errorf("operator 'in' does not support %s", typeName(container))
 	}

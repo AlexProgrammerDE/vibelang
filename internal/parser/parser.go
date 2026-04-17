@@ -93,6 +93,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 	switch line.Tokens[0].Kind {
 	case lexer.TokenDef:
 		return p.parseFunction(indent)
+	case lexer.TokenMacro:
+		return p.parseMacro(indent)
 	case lexer.TokenImport:
 		return p.parseImport()
 	case lexer.TokenFrom:
@@ -340,6 +342,98 @@ func (p *Parser) parseFunction(indent int) (ast.Stmt, error) {
 	}
 
 	return &ast.FunctionDef{
+		Line:       line.Number,
+		Name:       name.Lexeme,
+		Params:     params,
+		ReturnType: returnType,
+		Body:       body,
+	}, nil
+}
+
+func (p *Parser) parseMacro(indent int) (ast.Stmt, error) {
+	line := p.lines[p.index]
+	cursor := newLineCursor(line.Tokens)
+
+	if _, err := cursor.expect(lexer.TokenMacro); err != nil {
+		return nil, err
+	}
+	name, err := cursor.expect(lexer.TokenIdentifier)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := cursor.expect(lexer.TokenLParen); err != nil {
+		return nil, err
+	}
+
+	params := make([]ast.Param, 0)
+	seenDefault := false
+	if !cursor.match(lexer.TokenRParen) {
+		for {
+			paramTokens, err := cursor.collectUntilTopLevel(lexer.TokenComma, lexer.TokenRParen)
+			if err != nil {
+				return nil, err
+			}
+			param, err := parseParamTokens(paramTokens, line.Number)
+			if err != nil {
+				return nil, err
+			}
+			if param.Default != nil {
+				seenDefault = true
+			} else if seenDefault {
+				return nil, fmt.Errorf("line %d: parameters without defaults cannot follow parameters with defaults", line.Number)
+			}
+			params = append(params, param)
+			if cursor.match(lexer.TokenComma) {
+				if cursor.match(lexer.TokenRParen) {
+					break
+				}
+				continue
+			}
+			if _, err := cursor.expect(lexer.TokenRParen); err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+
+	returnType := ast.TypeRef{}
+	if cursor.match(lexer.TokenArrow) {
+		typeTokens, err := cursor.collectUntilTopLevel(lexer.TokenColon)
+		if err != nil {
+			return nil, err
+		}
+		if len(typeTokens) == 0 {
+			return nil, fmt.Errorf("line %d: expected return type", line.Number)
+		}
+		returnType = ast.TypeRef{Expr: tokensToText(typeTokens)}
+	}
+
+	if _, err := cursor.expect(lexer.TokenColon); err != nil {
+		return nil, err
+	}
+	if !cursor.done() {
+		return nil, fmt.Errorf("line %d: unexpected token %q", line.Number, cursor.peek().Lexeme)
+	}
+
+	p.index++
+
+	bodyIndent, ok, err := p.findRawChildIndent(indent)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("line %d: macro body is required", line.Number)
+	}
+
+	body, err := p.collectRawBody(bodyIndent)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, fmt.Errorf("line %d: macro body is empty", line.Number)
+	}
+
+	return &ast.MacroDef{
 		Line:       line.Number,
 		Name:       name.Lexeme,
 		Params:     params,
@@ -1207,6 +1301,8 @@ func (p *exprParser) parsePrimary() (ast.Expr, error) {
 		return &ast.Literal{Line: token.Line, Value: value}, nil
 	case lexer.TokenPrompt:
 		return parsePromptToken(token, false)
+	case lexer.TokenAt:
+		return p.parseMacroCall(token)
 	case lexer.TokenTrue:
 		return &ast.Literal{Line: token.Line, Value: true}, nil
 	case lexer.TokenFalse:
@@ -1270,6 +1366,65 @@ func (p *exprParser) parsePrimary() (ast.Expr, error) {
 	default:
 		return nil, p.errorf("unexpected token %q", token.Lexeme)
 	}
+}
+
+func (p *exprParser) parseMacroCall(at lexer.Token) (ast.Expr, error) {
+	if p.isAtEnd() {
+		return nil, p.errorf("expected macro name after '@'")
+	}
+	if !p.match(lexer.TokenIdentifier) {
+		return nil, p.errorf("expected macro name after '@'")
+	}
+
+	callee := ast.Expr(&ast.Identifier{Line: at.Line, Name: p.previous().Lexeme})
+	for p.match(lexer.TokenDot) {
+		if !p.check(lexer.TokenIdentifier) {
+			return nil, p.errorf("expected member name after '.'")
+		}
+		member := p.advance()
+		callee = &ast.MemberExpr{
+			Line: at.Line,
+			Left: callee,
+			Name: member.Lexeme,
+		}
+	}
+
+	if !p.match(lexer.TokenLParen) {
+		return nil, p.errorf("expected '(' after macro name")
+	}
+
+	args := make([]ast.CallArgument, 0)
+	seenKeyword := false
+	if !p.match(lexer.TokenRParen) {
+		for {
+			arg, err := p.parseCallArgument()
+			if err != nil {
+				return nil, err
+			}
+			if arg.Name != "" {
+				seenKeyword = true
+			} else if seenKeyword {
+				return nil, p.errorf("positional arguments cannot follow keyword arguments")
+			}
+			args = append(args, arg)
+			if p.match(lexer.TokenComma) {
+				if p.match(lexer.TokenRParen) {
+					break
+				}
+				continue
+			}
+			if !p.match(lexer.TokenRParen) {
+				return nil, p.errorf("expected ')'")
+			}
+			break
+		}
+	}
+
+	return &ast.MacroCallExpr{
+		Line:      at.Line,
+		Callee:    callee,
+		Arguments: args,
+	}, nil
 }
 
 func (p *exprParser) match(kinds ...lexer.TokenKind) bool {

@@ -1,0 +1,15 @@
+macro even_numbers(limit: int) -> list[int]:
+    Return one valid vibelang expression that builds the even numbers below ${limit} * 2.
+    Prefer using range with explicit named arguments.
+
+macro response_ok(body: string) -> dict:
+    Return one valid vibelang expression for a dict with status 200,
+    headers {"content-type": "text/plain; charset=utf-8"},
+    and body ${body}.
+
+numbers = @even_numbers(5)
+reply = @response_ok("macro expanded " + json(numbers))
+
+print(numbers)
+print(reply["status"])
+print(reply["body"])

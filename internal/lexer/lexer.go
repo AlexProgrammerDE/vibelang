@@ -239,6 +239,8 @@ func singleCharToken(ch byte) (TokenKind, bool) {
 		return TokenSlash, true
 	case '%':
 		return TokenPercent, true
+	case '@':
+		return TokenAt, true
 	case '<':
 		return TokenLT, true
 	case '>':

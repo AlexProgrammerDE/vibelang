@@ -6,6 +6,7 @@
 
 - Uses indentation-sensitive, Python-like syntax for variables, expressions, loops, and conditionals.
 - Treats every `def` body as natural-language instructions instead of imperative code.
+- Supports AI macros with `macro` definitions and `@macro(...)` expansion syntax, so the model can synthesize real vibelang expressions on the fly.
 - Supports module loading with `import "./module.vibe" as module` and `from "./module.vibe" import helper`.
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
@@ -13,6 +14,7 @@
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
+- Adds first-class sets, JSON text parsing and formatting helpers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, mutexes, wait groups, and runtime metrics.
 - Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
@@ -103,6 +105,17 @@ print(items[1:3])
 print(items[::-1])
 ```
 
+AI macros expand into real expressions before evaluation:
+
+```python
+macro even_numbers(limit: int) -> list[int]:
+    Return one valid vibelang expression that builds the even numbers below ${limit} * 2.
+    Prefer using range with explicit named arguments.
+
+numbers = @even_numbers(5)
+print(numbers)
+```
+
 Modules are ordinary `.vibe` files:
 
 ```python
@@ -173,13 +186,14 @@ http_server_stop(server["handle"])
 The deterministic runtime now covers more of the boring work that AI functions should not hallucinate:
 
 - Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`
+- Data: `json_parse`, `json_pretty`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
 - Services: `http_serve`, `http_server_stop`
-- Metrics: `metrics_snapshot`
+- Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
 
 Bundled `std` modules currently include:
 
