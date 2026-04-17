@@ -237,12 +237,9 @@ func (i *Interpreter) assignValue(ctx context.Context, env *Environment, target 
 		}
 		switch container := left.(type) {
 		case []any:
-			position, ok := asInt(index)
-			if !ok {
-				return fmt.Errorf("list index must be an integer")
-			}
-			if position < 0 || int(position) >= len(container) {
-				return fmt.Errorf("list index %d out of range", position)
+			position, err := normalizeSequenceIndex(index, len(container), "list")
+			if err != nil {
+				return err
 			}
 			container[position] = value
 			return nil
@@ -252,6 +249,17 @@ func (i *Interpreter) assignValue(ctx context.Context, env *Environment, target 
 		default:
 			return fmt.Errorf("cannot assign through %s", typeName(left))
 		}
+	case *ast.MemberExpr:
+		left, err := i.evaluateExpression(ctx, env, node.Left)
+		if err != nil {
+			return err
+		}
+		container, ok := left.(map[string]any)
+		if !ok {
+			return fmt.Errorf("cannot assign member %q on %s", node.Name, typeName(left))
+		}
+		container[node.Name] = value
+		return nil
 	default:
 		return fmt.Errorf("invalid assignment target")
 	}
@@ -311,13 +319,9 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 				return nil, err
 			}
 			if !truthy(left) {
-				return false, nil
+				return left, nil
 			}
-			right, err := i.evaluateExpression(ctx, env, node.Right)
-			if err != nil {
-				return nil, err
-			}
-			return truthy(right), nil
+			return i.evaluateExpression(ctx, env, node.Right)
 		}
 		if node.Operator == "or" {
 			left, err := i.evaluateExpression(ctx, env, node.Left)
@@ -325,13 +329,9 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 				return nil, err
 			}
 			if truthy(left) {
-				return true, nil
+				return left, nil
 			}
-			right, err := i.evaluateExpression(ctx, env, node.Right)
-			if err != nil {
-				return nil, err
-			}
-			return truthy(right), nil
+			return i.evaluateExpression(ctx, env, node.Right)
 		}
 
 		left, err := i.evaluateExpression(ctx, env, node.Left)
@@ -375,22 +375,16 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 		}
 		switch container := left.(type) {
 		case []any:
-			position, ok := asInt(index)
-			if !ok {
-				return nil, fmt.Errorf("list index must be an integer")
-			}
-			if position < 0 || int(position) >= len(container) {
-				return nil, fmt.Errorf("list index %d out of range", position)
+			position, err := normalizeSequenceIndex(index, len(container), "list")
+			if err != nil {
+				return nil, err
 			}
 			return container[position], nil
 		case string:
-			position, ok := asInt(index)
-			if !ok {
-				return nil, fmt.Errorf("string index must be an integer")
-			}
 			runes := []rune(container)
-			if position < 0 || int(position) >= len(runes) {
-				return nil, fmt.Errorf("string index %d out of range", position)
+			position, err := normalizeSequenceIndex(index, len(runes), "string")
+			if err != nil {
+				return nil, err
 			}
 			return string(runes[position]), nil
 		case map[string]any:
@@ -402,6 +396,20 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 		default:
 			return nil, fmt.Errorf("cannot index %s", typeName(left))
 		}
+	case *ast.MemberExpr:
+		left, err := i.evaluateExpression(ctx, env, node.Left)
+		if err != nil {
+			return nil, err
+		}
+		container, ok := left.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("cannot access member %q on %s", node.Name, typeName(left))
+		}
+		value, ok := container[node.Name]
+		if !ok {
+			return nil, fmt.Errorf("member %q does not exist", node.Name)
+		}
+		return value, nil
 	case *ast.ListLiteral:
 		values := make([]any, 0, len(node.Elements))
 		for _, element := range node.Elements {

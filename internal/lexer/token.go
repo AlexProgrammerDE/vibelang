@@ -35,6 +35,7 @@ const (
 	TokenLBrace   TokenKind = "{"
 	TokenRBrace   TokenKind = "}"
 	TokenComma    TokenKind = ","
+	TokenDot      TokenKind = "."
 	TokenColon    TokenKind = ":"
 	TokenArrow    TokenKind = "->"
 	TokenAssign   TokenKind = "="

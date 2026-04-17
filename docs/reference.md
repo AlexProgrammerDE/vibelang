@@ -40,6 +40,7 @@ Notes:
 - Import paths are string literals.
 - Relative paths resolve from the directory of the importing file.
 - `import` binds a module namespace as a `dict`.
+- Imported module namespaces support both `shared["name"]` and `shared.name`.
 - `from ... import ...` binds exported names directly in the current scope.
 - Any top-level name that starts with `_` stays private to the module.
 
@@ -68,6 +69,7 @@ Supported statements:
 - module import: `import "path" as name`, `from "path" import item`
 - assignment: `name = expression`
 - index assignment: `items[0] = "updated"`
+- member assignment: `config.name = "updated"`
 - expression statement: `print(value)`
 - conditional: `if ...:`, `elif ...:`, `else:`
 - loop: `while ...:` and `for name in iterable:`
@@ -87,13 +89,15 @@ Supported expressions:
 - comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`
 - boolean operators: `and`, `or`, `not`
 - calls: `fn(arg1, arg2)` and `fn(name="Ada", tone="dry")`
-- indexing: `items[0]`, `record["name"]`
+- indexing: `items[0]`, `items[-1]`, `record["name"]`
+- member access: `shared.format_name`, `config.name`
 
 Call notes:
 
 - Keyword arguments must follow positional arguments.
 - User-defined functions and eligible builtins both accept keyword arguments.
 - Default parameter values are applied when arguments are omitted.
+- `and` and `or` short-circuit and return the surviving operand value, matching Python-style truthiness.
 
 ## Types
 

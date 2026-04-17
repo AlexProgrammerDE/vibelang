@@ -3,4 +3,4 @@ import "./shared.vibe" as shared
 
 print(prefix)
 print(format_name("Ada"))
-print(shared["headline"]("Grace"))
+print(shared.headline("Grace"))

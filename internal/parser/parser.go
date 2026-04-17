@@ -240,7 +240,7 @@ func (p *Parser) parseSimpleStatement() (ast.Stmt, error) {
 			return nil, ep.errorf("unexpected token %q", ep.peek().Lexeme)
 		}
 		switch target.(type) {
-		case *ast.Identifier, *ast.IndexExpr:
+		case *ast.Identifier, *ast.IndexExpr, *ast.MemberExpr:
 		default:
 			return nil, fmt.Errorf("line %d: invalid assignment target", line.Number)
 		}
@@ -1012,6 +1012,19 @@ func (p *exprParser) parsePostfix() (ast.Expr, error) {
 				return nil, p.errorf("expected ']'")
 			}
 			expr = &ast.IndexExpr{Line: expr.LineNumber(), Left: expr, Index: indexExpr}
+			continue
+		}
+
+		if p.match(lexer.TokenDot) {
+			if !p.check(lexer.TokenIdentifier) {
+				return nil, p.errorf("expected member name after '.'")
+			}
+			member := p.advance()
+			expr = &ast.MemberExpr{
+				Line: expr.LineNumber(),
+				Left: expr,
+				Name: member.Lexeme,
+			}
 			continue
 		}
 

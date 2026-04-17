@@ -219,3 +219,37 @@ from "./shared.vibe" import format_name, helper as alias_helper
 		t.Fatalf("expected 2 statements, got %d", len(program.Statements))
 	}
 }
+
+func TestParseMemberAccess(t *testing.T) {
+	source := `import "./shared.vibe" as shared
+result = shared.format_name("Ada")
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(program.Statements))
+	}
+
+	assign, ok := program.Statements[1].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[1])
+	}
+
+	call, ok := assign.Value.(*ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected CallExpr, got %T", assign.Value)
+	}
+
+	member, ok := call.Callee.(*ast.MemberExpr)
+	if !ok {
+		t.Fatalf("expected MemberExpr, got %T", call.Callee)
+	}
+
+	if member.Name != "format_name" {
+		t.Fatalf("expected member name format_name, got %q", member.Name)
+	}
+}

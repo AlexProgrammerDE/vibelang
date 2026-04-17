@@ -45,7 +45,7 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 
 - lexical scoping for names
 - module loading with isolated exports
-- collection literals and indexing
+- collection literals, member access, and negative indexing
 - loops and conditionals
 - builtins for routine data work
 - builtin tools for file access, path handling, JSON, strings, environment inspection, HTTP, TCP sockets, local process execution, math, and time

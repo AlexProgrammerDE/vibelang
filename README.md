@@ -10,6 +10,8 @@
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
+- Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
+- Supports Python-style negative indexing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
 - Captures surrounding non-function values when an AI function is defined, so prompts can safely use module constants and top-level configuration.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, and local process helpers.
@@ -103,7 +105,7 @@ import "./shared.vibe" as shared
 
 print(prefix)
 print(format_name("Ada"))
-print(shared["format_name"]("Grace"))
+print(shared.format_name("Grace"))
 ```
 
 ## Project Layout

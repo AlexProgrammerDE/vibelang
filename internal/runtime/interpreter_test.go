@@ -561,6 +561,103 @@ print(shared["format_name"]("Ada"))
 	}
 }
 
+func TestInterpreterImportsModulesWithDotAccess(t *testing.T) {
+	tempDir := t.TempDir()
+	modulePath := filepath.Join(tempDir, "shared.vibe")
+	moduleSource := `prefix = "Dr."
+def format_name(name: string) -> string:
+    Return exactly: ${prefix} ${name}
+`
+	if err := os.WriteFile(modulePath, []byte(moduleSource), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	source := `import "./shared.vibe" as shared
+print(shared.prefix)
+print(shared.format_name("Ada"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"Dr. Ada"}`,
+		},
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd returned error: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Chdir returned error: %v", err)
+	}
+	defer os.Chdir(originalWD)
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Dr.\nDr. Ada\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Dr.\nDr. Ada\n", stdout.String())
+	}
+}
+
+func TestInterpreterBooleanOperatorsReturnPythonStyleValues(t *testing.T) {
+	source := `print("left" and "right")
+print("" or "fallback")
+print(0 or 7)
+print("value" or "ignored")
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "right\nfallback\n7\nvalue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterSupportsNegativeIndexes(t *testing.T) {
+	source := `items = ["alpha", "beta", "gamma"]
+print(items[-1])
+print(items[-2])
+print("vibe"[-1])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "gamma\nbeta\ne\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "gamma\nbeta\ne\n", stdout.String())
+	}
+}
+
 func TestInterpreterProvidesNetworkAndSystemStdlib(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("X-Test") != "vibelang" {

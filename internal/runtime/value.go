@@ -190,3 +190,17 @@ func containsValue(container, needle any) (bool, error) {
 func containsString(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
+
+func normalizeSequenceIndex(index any, length int, kind string) (int, error) {
+	position, ok := asInt(index)
+	if !ok {
+		return 0, fmt.Errorf("%s index must be an integer", kind)
+	}
+	if position < 0 {
+		position = int64(length) + position
+	}
+	if position < 0 || int(position) >= length {
+		return 0, fmt.Errorf("%s index %d out of range", kind, position)
+	}
+	return int(position), nil
+}

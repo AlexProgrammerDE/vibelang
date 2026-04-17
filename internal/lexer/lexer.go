@@ -223,6 +223,8 @@ func singleCharToken(ch byte) (TokenKind, bool) {
 		return TokenRBrace, true
 	case ',':
 		return TokenComma, true
+	case '.':
+		return TokenDot, true
 	case ':':
 		return TokenColon, true
 	case '=':

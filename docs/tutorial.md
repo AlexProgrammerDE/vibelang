@@ -99,7 +99,7 @@ import "./shared.vibe" as shared
 
 print(prefix)
 print(format_name("Ada"))
-print(shared["format_name"]("Grace"))
+print(shared.format_name("Grace"))
 ```
 
 ## 4. Run It
