@@ -1,0 +1,12 @@
+import "std/web" as web
+
+def handle(request: dict) -> dict:
+    Call web.respond_html with the title "vibelang demo" and a brief describing ${request["path"]}.
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/hello")
+
+print(response["status"])
+print(response["body"])
+http_server_stop(server["handle"])
+

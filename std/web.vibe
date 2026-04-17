@@ -1,0 +1,13 @@
+default_theme = "linen"
+
+def render_page(title: string, brief: string, accent: string = "teal", theme: string = default_theme) -> string:
+    Return a complete HTML5 document with inline CSS.
+    The title is ${title}.
+    The page brief is ${brief}.
+    Use semantic HTML, responsive layout, and a ${theme} background with a restrained ${accent} accent color.
+    Keep the markup production-shaped, readable, and dependency-free.
+
+def respond_html(title: string, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict:
+    Call render_page to produce the HTML body.
+    Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.
+

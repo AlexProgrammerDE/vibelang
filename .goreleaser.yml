@@ -36,6 +36,7 @@ archives:
       - LICENSE
       - docs/**
       - examples/**
+      - std/**
 
 checksum:
   name_template: checksums.txt

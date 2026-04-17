@@ -113,6 +113,25 @@ print(format_name("Ada"))
 print(shared.format_name("Grace"))
 ```
 
+Bundled `std` modules can be imported directly:
+
+```python
+import "std/web" as web
+
+def handle(request: dict) -> dict:
+    Call web.respond_html with the title "demo" and a brief describing ${request["path"]}.
+```
+
+The runtime also has native concurrency primitives:
+
+```python
+wg = wait_group()
+wait_group_add(wg, 1)
+task = spawn(str, args=[42], wait_group=wg)
+wait_group_wait(wg)
+print(await_task(task))
+```
+
 ## 4. Run It
 
 With Ollama:
@@ -158,3 +177,5 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.
 - Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.
+- Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
+- Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.

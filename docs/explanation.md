@@ -49,12 +49,25 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 - loops and conditionals
 - builtins for routine data work
 - builtin tools for file access, path handling, JSON, strings, environment inspection, HTTP, TCP sockets, local process execution, math, and time
+- Go-backed concurrency primitives for tasks, channels, mutexes, wait groups, and runtime metrics
+- AI-backed HTTP services, so a request can be turned into a normal function call instead of special-case framework code
 - Python-like default parameters and keyword arguments for optional inputs
 - captured non-function values inside AI function bodies, copied by value at definition time
 - type coercion for model outputs
 - bounded helper-call recursion
 
 In practice that means you can keep AI functions focused on language-heavy tasks and leave the boring control flow to normal code.
+
+## Why Services And Concurrency Are Native
+
+The language now has two execution layers:
+
+- deterministic orchestration in Go
+- intent-heavy decisions in the local model
+
+That split matters even more for servers and background work. Spawning tasks, synchronizing them, or serving an HTTP request should not depend on model luck. Those are runtime concerns, so `vibelang` handles them natively and hands only the request-specific reasoning to AI functions.
+
+The same logic applies to module loading. Relative imports stay simple, but the loader also understands `VIBE_PATH`, remote URLs, and GitHub-style raw imports so prompt-native libraries can be shared without inventing another packaging format first.
 
 ## Limits
 

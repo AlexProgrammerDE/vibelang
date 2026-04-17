@@ -33,12 +33,17 @@ Notes:
 ```python
 import "./shared.vibe" as shared
 from "./shared.vibe" import format_name, helper as alias_helper
+import "std/web" as web
+import "github.com/example/vibelib/std/theme@main" as theme
 ```
 
 Notes:
 
 - Import paths are string literals.
 - Relative paths resolve from the directory of the importing file.
+- Bare imports are searched in the importing directory, `VIBE_PATH`, the current working directory, and the executable directory.
+- `http://...` and `https://...` imports are fetched directly over HTTP.
+- `github.com/owner/repo/path@ref` imports resolve to `raw.githubusercontent.com`.
 - `import` binds a module namespace as a `dict`.
 - Imported module namespaces support both `shared["name"]` and `shared.name`.
 - `from ... import ...` binds exported names directly in the current scope.
@@ -173,7 +178,29 @@ The runtime coerces model outputs to the declared return type when possible.
 - `socket_write(handle, data)`: write to an open socket
 - `socket_read(handle, max_bytes=4096, timeout_ms=1000)`: read from an open socket
 - `socket_close(handle)`: close an open socket
+- `spawn(callable, args=[], kwargs={}, wait_group=none)`: run a function concurrently and return a task handle
+- `await_task(task, timeout_ms=-1)`: wait for a task and return its result
+- `task_status(task)`: inspect task completion, timestamps, result, or error
+- `channel(capacity=0)`: create a channel handle
+- `channel_send(channel, value, timeout_ms=-1)`: send a value to a channel
+- `channel_recv(channel, timeout_ms=-1)`: receive a dict with `value`, `ok`, and `timeout`
+- `channel_close(channel)`: close a channel
+- `mutex()`: create a mutex handle
+- `mutex_lock(mutex, timeout_ms=-1)`: acquire a mutex
+- `mutex_unlock(mutex)`: release a mutex
+- `wait_group()`: create a wait group handle
+- `wait_group_add(wait_group, delta=1)`: add to the counter and return the new value
+- `wait_group_done(wait_group)`: decrement the counter and return the new value
+- `wait_group_wait(wait_group, timeout_ms=-1)`: wait for the counter to reach zero
+- `http_serve(address, handler, read_timeout_ms=15000, write_timeout_ms=15000)`: start an HTTP server and return `{handle, address}`
+- `http_server_stop(handle, timeout_ms=5000)`: gracefully stop a server
+- `metrics_snapshot()`: return interpreter counters such as AI requests, tool calls, tasks, and HTTP traffic
 - `pi`, `e`: math constants exposed as top-level values
+
+Bundled modules:
+
+- `std/web`: AI helpers for HTML rendering and HTML response construction
+- `std/telemetry`: AI helpers for summarizing runtime metrics
 
 ## AI Function Protocol
 

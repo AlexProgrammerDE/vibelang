@@ -74,6 +74,8 @@ func registerBuiltins(interpreter *Interpreter) {
 
 func registerBuiltin(interpreter *Interpreter, builtin *builtinFunction) {
 	interpreter.globals.Define(builtin.name, builtin)
+	interpreter.mu.Lock()
+	defer interpreter.mu.Unlock()
 	if builtin.tool != nil {
 		interpreter.tools[builtin.name] = builtin
 	}

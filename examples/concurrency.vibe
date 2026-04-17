@@ -1,0 +1,17 @@
+ch = channel(1)
+channel_send(ch, "tasks queued")
+
+wg = wait_group()
+wait_group_add(wg, 2)
+
+first = spawn(str, args=[42], wait_group=wg)
+second = spawn(join, args=[["vibe", "lang"], "-"], wait_group=wg)
+
+notice = channel_recv(ch)
+wait_group_wait(wg)
+
+print(notice["value"])
+print(await_task(first))
+print(await_task(second))
+print(metrics_snapshot())
+

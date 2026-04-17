@@ -518,6 +518,115 @@ print(message)
 	}
 }
 
+func TestInterpreterSupportsConcurrencyPrimitives(t *testing.T) {
+	source := `ch = channel(1)
+channel_send(ch, "ready")
+packet = channel_recv(ch)
+
+mu = mutex()
+mutex_lock(mu)
+mutex_unlock(mu)
+
+wg = wait_group()
+wait_group_add(wg, 1)
+task = spawn(str, args=[42], wait_group=wg)
+wait_group_wait(wg)
+
+print(packet["value"])
+print(await_task(task))
+snapshot = metrics_snapshot()
+print(snapshot["tasks_spawned_total"] >= 1)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "ready\n42\ntrue\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "ready\n42\ntrue\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsAIHTTPServer(t *testing.T) {
+	source := `def handle(request: dict) -> dict:
+    Return a dict with status 201, headers {"content-type": "text/plain"}, and body "hello from ai".
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/hello")
+print(response["status"])
+print(response["body"])
+http_server_stop(server["handle"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":{"status":201,"headers":{"content-type":"text/plain"},"body":"hello from ai"}}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "201\nhello from ai\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "201\nhello from ai\n", stdout.String())
+	}
+	if len(client.prompts) != 1 {
+		t.Fatalf("expected 1 model prompt, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], "\"path\": \"/hello\"") {
+		t.Fatalf("prompt did not include request path:\n%s", client.prompts[0])
+	}
+}
+
+func TestInterpreterSupportsURLImports(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/shared.vibe":
+			_, _ = io.WriteString(writer, "prefix = \"remote\"\n")
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	source := fmt.Sprintf(`import %q as remote
+print(remote.prefix)
+`, server.URL+"/shared.vibe")
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "remote\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "remote\n", stdout.String())
+	}
+}
+
 func TestInterpreterProvidesExpandedStandardLibrary(t *testing.T) {
 	originalWD, err := os.Getwd()
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	"vibelang/internal/ast"
 	"vibelang/internal/model"
@@ -24,6 +25,7 @@ type Config struct {
 }
 
 type Interpreter struct {
+	mu            sync.RWMutex
 	model         model.Client
 	stdout        io.Writer
 	trace         io.Writer
@@ -37,6 +39,12 @@ type Interpreter struct {
 	moduleCache   map[string]*loadedModule
 	loadingModule map[string]bool
 	sockets       map[string]*socketHandle
+	tasks         map[string]*taskHandle
+	channels      map[string]*channelHandle
+	mutexes       map[string]*mutexHandle
+	waitGroups    map[string]*safeWaitGroup
+	servers       map[string]*httpServerHandle
+	metrics       map[string]int64
 	nextResource  int64
 }
 
@@ -73,6 +81,12 @@ func NewInterpreter(config Config) *Interpreter {
 		moduleCache:   make(map[string]*loadedModule),
 		loadingModule: make(map[string]bool),
 		sockets:       make(map[string]*socketHandle),
+		tasks:         make(map[string]*taskHandle),
+		channels:      make(map[string]*channelHandle),
+		mutexes:       make(map[string]*mutexHandle),
+		waitGroups:    make(map[string]*safeWaitGroup),
+		servers:       make(map[string]*httpServerHandle),
+		metrics:       make(map[string]int64),
 	}
 
 	registerBuiltins(interpreter)
@@ -134,8 +148,7 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 		}
 		function := NewAIFunction(node, defaults, env.SnapshotValues())
 		env.Define(node.Name, function)
-		i.functions[node.Name] = function
-		i.tools[node.Name] = function
+		i.registerFunction(function)
 		return signalNone, nil
 	case *ast.ImportStmt:
 		if err := i.executeImport(ctx, env, moduleDir, node); err != nil {
@@ -558,7 +571,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 	}
 
 	history := make([]ToolEvent, 0)
-	tools := sortedToolSpecs(i.tools, excludeTool)
+	tools := i.toolSpecs(excludeTool)
 
 	for step := 0; step < i.maxAISteps; step++ {
 		prompt, err := buildPrompt(function, instructions, args, tools, history)
@@ -571,7 +584,9 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			Prompt:     prompt,
 			JSONSchema: aiActionSchema(),
 		})
+		i.incrementMetric("ai_model_requests_total", 1)
 		if err != nil {
+			i.incrementMetric("ai_model_request_errors_total", 1)
 			return nil, fmt.Errorf("%s model request failed: %w", function.Name(), err)
 		}
 		i.tracef("%s raw model response: %s", function.Name(), response.Text)
@@ -587,13 +602,14 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			if err != nil {
 				return nil, fmt.Errorf("%s returned a value that does not match %s: %w", function.Name(), function.Def.ReturnType.String(), err)
 			}
+			i.incrementMetric("ai_returns_total", 1)
 			i.tracef("%s returning %s", function.Name(), jsonString(value))
 			return value, nil
 		case "call":
 			if action.Call == nil {
 				return nil, fmt.Errorf("%s requested a helper call without call details", function.Name())
 			}
-			callee, ok := i.tools[action.Call.Name]
+			callee, ok := i.lookupTool(action.Call.Name)
 			if !ok {
 				return nil, fmt.Errorf("%s requested unknown helper %q", function.Name(), action.Call.Name)
 			}
@@ -611,9 +627,11 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			if err != nil {
 				return nil, err
 			}
+			i.incrementMetric("ai_tool_calls_total", 1)
 			i.tracef("%s calling %s with %s", function.Name(), action.Call.Name, jsonString(bound))
 			result, err := i.invokeTool(ctx, callee, bound, depth+1)
 			if err != nil {
+				i.incrementMetric("ai_tool_call_errors_total", 1)
 				return nil, err
 			}
 			history = append(history, ToolEvent{
@@ -791,6 +809,8 @@ func compareValues(operator string, left, right any) (bool, error) {
 }
 
 func (i *Interpreter) FunctionNames() []string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	names := make([]string, 0, len(i.functions))
 	for name := range i.functions {
 		names = append(names, name)

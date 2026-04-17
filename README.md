@@ -14,7 +14,9 @@
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
-- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, and local process helpers.
+- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, mutexes, wait groups, and runtime metrics.
+- Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
+- Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
 - Runs against local model servers, with first-class support for Ollama and `llama.cpp`.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 - Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
@@ -121,6 +123,40 @@ print(format_name("Ada"))
 print(shared.format_name("Grace"))
 ```
 
+Concurrent work uses native Go-backed primitives:
+
+```python
+ch = channel(1)
+channel_send(ch, "tasks queued")
+
+wg = wait_group()
+wait_group_add(wg, 2)
+
+first = spawn(str, args=[42], wait_group=wg)
+second = spawn(join, args=[["vibe", "lang"], "-"], wait_group=wg)
+
+notice = channel_recv(ch)
+wait_group_wait(wg)
+
+print(notice["value"])
+print(await_task(first))
+print(await_task(second))
+```
+
+HTTP handlers can also be AI-backed:
+
+```python
+import "std/web" as web
+
+def handle(request: dict) -> dict:
+    Call web.respond_html with the title "vibelang demo" and a brief describing ${request["path"]}.
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/hello")
+print(response["status"])
+http_server_stop(server["handle"])
+```
+
 ## Project Layout
 
 - `cmd/vibelang`: CLI entrypoint.
@@ -128,6 +164,7 @@ print(shared.format_name("Grace"))
 - `internal/parser`: AST builder for statements, expressions, and raw AI function bodies.
 - `internal/runtime`: evaluator, builtins, type coercion, prompt construction, and AI tool-call loop.
 - `internal/model`: Ollama and `llama.cpp` HTTP clients.
+- `std`: bundled vibelang modules that ship prompt-native library helpers.
 - `examples`: runnable sample programs.
 - `docs`: tutorial, how-to, reference, and explanation documents.
 
@@ -140,6 +177,14 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
+- Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
+- Services: `http_serve`, `http_server_stop`
+- Metrics: `metrics_snapshot`
+
+Bundled `std` modules currently include:
+
+- `std/web`: AI helpers for HTML page rendering and HTML HTTP responses
+- `std/telemetry`: AI helpers for summarizing runtime metrics
 
 ## Documentation
 

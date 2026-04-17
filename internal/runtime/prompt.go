@@ -152,13 +152,21 @@ func (i *Interpreter) newPromptEnvironment(values map[string]any) *Environment {
 }
 
 func (i *Interpreter) compilePrompt(body string) (*compiledPrompt, error) {
+	i.mu.RLock()
 	if cached, ok := i.promptCache[body]; ok {
+		i.mu.RUnlock()
 		return cached, nil
 	}
+	i.mu.RUnlock()
 
 	template, err := parsePromptTemplate(body)
 	if err != nil {
 		return nil, err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if cached, ok := i.promptCache[body]; ok {
+		return cached, nil
 	}
 	i.promptCache[body] = template
 	return template, nil

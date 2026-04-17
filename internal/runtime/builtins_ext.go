@@ -139,6 +139,8 @@ func registerExtendedBuiltins(interpreter *Interpreter) {
 		bindArgs: true,
 	})
 	registerBuiltin(interpreter, toolBuiltin("socket_close", builtinSocketClose, "bool", "Close an open socket handle. Return true when a socket was closed and false when the handle was already gone.", ast.Param{Name: "handle", Type: ast.TypeRef{Expr: "string"}}))
+	registerConcurrencyBuiltins(interpreter)
+	registerHTTPServerBuiltins(interpreter)
 }
 
 func builtinGlob(_ context.Context, _ *Interpreter, args []any) (any, error) {
@@ -456,7 +458,7 @@ func builtinSocketOpen(_ context.Context, interpreter *Interpreter, args []any) 
 		return nil, err
 	}
 	handle := interpreter.nextHandle("socket")
-	interpreter.sockets[handle] = &socketHandle{conn: conn}
+	interpreter.storeSocket(handle, &socketHandle{conn: conn})
 	return handle, nil
 }
 
@@ -531,28 +533,14 @@ func builtinSocketClose(_ context.Context, interpreter *Interpreter, args []any)
 	if err != nil {
 		return nil, err
 	}
-	handle, ok := interpreter.sockets[handleID]
+	handle, ok := interpreter.closeSocket(handleID)
 	if !ok {
 		return false, nil
 	}
-	delete(interpreter.sockets, handleID)
 	if err := handle.conn.Close(); err != nil {
 		return nil, err
 	}
 	return true, nil
-}
-
-func (i *Interpreter) nextHandle(prefix string) string {
-	i.nextResource++
-	return fmt.Sprintf("%s_%d", prefix, i.nextResource)
-}
-
-func (i *Interpreter) lookupSocket(handleID string) (*socketHandle, error) {
-	handle, ok := i.sockets[handleID]
-	if !ok {
-		return nil, fmt.Errorf("unknown socket handle %q", handleID)
-	}
-	return handle, nil
 }
 
 func requireFloat(name string, value any, param string) (float64, error) {

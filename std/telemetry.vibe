@@ -1,0 +1,7 @@
+def summarize_metrics(snapshot: dict, tone: string = "crisp") -> string:
+    Summarize the interpreter metrics in one ${tone} paragraph.
+    Mention the busiest counters and what they imply.
+
+def render_metrics_brief(snapshot: dict) -> string:
+    Return a compact Markdown table for the metrics snapshot ${snapshot}.
+
