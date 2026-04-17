@@ -1,9 +1,8 @@
 def summarize_release(changes: list[string]) -> string:
-    @provider openai-compatible
-    @endpoint https://models.example.com/v1
-    @model hosted-gemma
-    @api_key_env VIBE_REMOTE_API_KEY
-    @timeout_ms 10000
+    @provider ollama
+    @endpoint http://127.0.0.1:11434
+    @model gemma4
+    @timeout_ms 20000
     Summarize the release changes ${json_pretty(changes)} in one crisp paragraph.
 
 changes = ["Added deterministic static asset serving for frontend bundles and wasm", "Added per-function model routing directives with client reuse"]

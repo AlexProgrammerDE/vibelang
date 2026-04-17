@@ -1,21 +1,28 @@
-import "std/web" as web
-
 def home(request: dict) -> dict:
-    Call web.respond_json with {"route": "home", "path": request["path"]}.
+    @temperature 0
+    @max_steps 2
+    @system Return only the final response object. Do not call helpers.
+    Return exactly {"status": 200, "json": {"route": "home", "path": ${json(request["path"])}}}.
 
 def profile(request: dict) -> dict:
-    Return a dict with status 200, json {"route": "profile", "id": request["params"]["id"], "method": request["method"]}.
+    @temperature 0
+    @max_steps 2
+    @system Return only the final response object. Do not call helpers.
+    Return exactly {"status": 200, "json": {"route": "profile", "id": ${json(request["params"]["id"])}, "method": ${json(request["method"])}}}.
 
 def not_found(request: dict) -> dict:
-    Return a dict with status 404, json {"route": "fallback", "path": request["path"]}.
+    @temperature 0
+    @max_steps 2
+    @system Return only the final response object. Do not call helpers.
+    Return exactly {"status": 404, "json": {"route": "fallback", "path": ${json(request["path"])}}}.
 
 routes = [{"pattern": "/", "handler": home}, {"pattern": "/users/:id", "methods": ["GET"], "handler": profile}]
 
 server = http_serve_routes("127.0.0.1:0", routes, fallback=not_found)
 
-root = http_request_json("http://" + server["address"] + "/")
-user = http_request_json("http://" + server["address"] + "/users/ada")
-missing = http_request_json("http://" + server["address"] + "/missing")
+root = http_request_json("http://" + server["address"] + "/", timeout_ms=30000)
+user = http_request_json("http://" + server["address"] + "/users/ada", timeout_ms=30000)
+missing = http_request_json("http://" + server["address"] + "/missing", timeout_ms=30000)
 
 print(json_pretty(root["json"]))
 print(json_pretty(user["json"]))

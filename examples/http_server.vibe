@@ -1,12 +1,12 @@
-import "std/web" as web
-
 def handle(request: dict) -> dict:
-    Call web.respond_html with the title "vibelang demo" and a brief describing ${request["path"]}.
+    @temperature 0
+    @max_steps 2
+    @system Return only the final response object. Do not call helpers.
+    Return exactly {"status": 200, "headers": {"content-type": "text/html; charset=utf-8"}, "html": "<!doctype html><html><head><meta charset=\"utf-8\"><title>vibelang demo</title></head><body><main><h1>vibelang demo</h1><p>Path: " + ${json(request["path"])} + "</p></main></body></html>"}.
 
 server = http_serve("127.0.0.1:0", handle)
-response = http_request("http://" + server["address"] + "/hello")
+response = http_request("http://" + server["address"] + "/hello", timeout_ms=30000)
 
 print(response["status"])
 print(response["body"])
 http_server_stop(server["handle"])
-

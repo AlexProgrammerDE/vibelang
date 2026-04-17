@@ -11,8 +11,11 @@ func macroSystemPrompt() string {
 		"You are the macro expansion engine for vibelang.",
 		"Macros must expand to one valid vibelang expression source string.",
 		"Always reply with a single JSON object that matches the provided macro schema.",
+		`For direct expansion, use JSON like {"action":"expand","source":"range(start=0, stop=10, step=2)"}.`,
+		`For one helper call, use JSON like {"action":"call","call":{"name":"json_pretty","arguments":{"value":{"ok":true}}}}.`,
 		"Use action=call only when exactly one helper function should run next.",
 		"Use action=call_many when multiple helper functions can run next without another model round in between.",
+		"Never reply with YAML, pseudo-code, action_call, or any format other than one JSON object.",
 		"Never use markdown, code fences, or extra commentary.",
 	}, "\n")
 }
@@ -125,8 +128,42 @@ func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, 
 	builder.WriteString("\n\n")
 	builder.WriteString("When finished, return action=expand and put exactly one valid vibelang expression in source.\n")
 	builder.WriteString("Every helper call must use exactly the declared argument names and argument types.\n")
+	builder.WriteString("Only the helper names listed above are valid. Never invent or guess a helper name.\n")
+	if hasUnavailableHelperRejection(history) {
+		builder.WriteString("One or more unavailable helper names were already rejected. Do not request them again. If you can finish without a listed helper, return the final value directly.\n")
+	}
 	builder.WriteString("Use action=call_many only when the listed helper calls can be executed sequentially from the current state without waiting for another model decision.\n")
 	builder.WriteString("Do not wrap the expression in markdown or explanations.\n")
+
+	return builder.String(), nil
+}
+
+func buildMacroRepairPrompt(macro *AIMacro, instructions string, args map[string]any, invalidResponse string, schema map[string]any) (string, error) {
+	inputJSON, err := json.MarshalIndent(args, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal macro inputs: %w", err)
+	}
+
+	var builder strings.Builder
+	builder.WriteString("Retry the following vibelang macro.\n\n")
+	builder.WriteString("Current macro:\n")
+	builder.WriteString(fmt.Sprintf("%s(%s) -> %s\n\n", macro.Name(), formatParams(macro.Def.Params), macro.Def.ReturnType.String()))
+	builder.WriteString("Macro instructions:\n")
+	builder.WriteString(instructions)
+	builder.WriteString("\n\n")
+	builder.WriteString("Inputs:\n")
+	builder.Write(inputJSON)
+	builder.WriteString("\n\n")
+	builder.WriteString("Previous invalid response:\n")
+	builder.WriteString(indentLines(strings.TrimSpace(invalidResponse), "  "))
+	builder.WriteString("\n\n")
+	builder.WriteString("Macro schema:\n")
+	builder.WriteString(indentLines(jsonString(schema), "  "))
+	builder.WriteString("\n\n")
+	builder.WriteString("The previous response was invalid. Do not repeat it.\n")
+	builder.WriteString("Reply with one JSON object only.\n")
+	builder.WriteString(`Use exactly {"action":"expand","source":"..."} when you can expand directly.` + "\n")
+	builder.WriteString("Do not call helpers unless they are absolutely required by the schema.\n")
 
 	return builder.String(), nil
 }

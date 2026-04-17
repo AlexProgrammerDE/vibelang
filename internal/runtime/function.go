@@ -292,13 +292,13 @@ func decodeActionPayload(payload map[string]any) (aiAction, error) {
 			}
 			return aiAction{Action: "return", Value: value}, nil
 		case "call":
-			call, err := decodeToolInvocation(payload["call"])
+			call, err := decodeActionToolInvocation(payload)
 			if err != nil {
 				return aiAction{}, err
 			}
 			return aiAction{Action: "call", Call: call}, nil
 		case "call_many":
-			calls, err := decodeToolInvocations(payload["calls"])
+			calls, err := decodeActionToolInvocations(payload)
 			if err != nil {
 				return aiAction{}, err
 			}
@@ -334,7 +334,10 @@ func decodeActionPayload(payload map[string]any) (aiAction, error) {
 		return aiAction{Action: "call_many", Calls: calls}, nil
 	}
 	if functionName, ok := payload["function"].(string); ok {
-		args, _ := payload["arguments"].(map[string]any)
+		args, err := decodeToolInvocationArguments(payload)
+		if err != nil {
+			return aiAction{}, err
+		}
 		return aiAction{
 			Action: "call",
 			Call: &toolInvocation{
@@ -343,8 +346,62 @@ func decodeActionPayload(payload map[string]any) (aiAction, error) {
 			},
 		}, nil
 	}
+	if hasToolInvocationPayload(payload) {
+		call, err := decodeToolInvocation(payload)
+		if err != nil {
+			return aiAction{}, err
+		}
+		return aiAction{Action: "call", Call: call}, nil
+	}
 
 	return aiAction{}, fmt.Errorf("response did not include a valid action")
+}
+
+func decodeActionToolInvocation(payload map[string]any) (*toolInvocation, error) {
+	if callPayload, ok := payload["call"]; ok && callPayload != nil {
+		call, err := decodeToolInvocation(callPayload)
+		if err == nil {
+			return call, nil
+		}
+		if !hasToolInvocationPayload(payload) {
+			return nil, err
+		}
+	}
+	call, err := decodeToolInvocation(payload)
+	if err == nil {
+		return call, nil
+	}
+	if synthetic, ok := decodeSyntheticToolInvocation(payload); ok {
+		return synthetic, nil
+	}
+	return nil, err
+}
+
+func decodeActionToolInvocations(payload map[string]any) ([]toolInvocation, error) {
+	if callsPayload, ok := payload["calls"]; ok {
+		return decodeToolInvocations(callsPayload)
+	}
+	if toolCallsPayload, ok := payload["tool_calls"]; ok {
+		return decodeToolInvocations(toolCallsPayload)
+	}
+	return nil, fmt.Errorf("tool calls were not an array")
+}
+
+func hasToolInvocationPayload(payload map[string]any) bool {
+	if hasToolInvocationName(payload) {
+		return true
+	}
+	_, ok := nestedToolInvocationPayload(payload)
+	return ok
+}
+
+func firstPresentValue(payload map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := payload[key]; ok {
+			return value
+		}
+	}
+	return nil
 }
 
 func decodeToolInvocation(value any) (*toolInvocation, error) {
@@ -352,13 +409,16 @@ func decodeToolInvocation(value any) (*toolInvocation, error) {
 	if !ok {
 		return nil, fmt.Errorf("tool call was not an object")
 	}
-	name, ok := callMap["name"].(string)
+	if nestedPayload, ok := nestedToolInvocationPayload(callMap); ok {
+		return decodeToolInvocation(nestedPayload)
+	}
+	name, ok := toolInvocationName(callMap)
 	if !ok || strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("tool call was missing a function name")
 	}
-	arguments, _ := callMap["arguments"].(map[string]any)
-	if arguments == nil {
-		arguments = map[string]any{}
+	arguments, err := decodeToolInvocationArguments(callMap)
+	if err != nil {
+		return nil, err
 	}
 	return &toolInvocation{Name: name, Arguments: arguments}, nil
 }
@@ -381,4 +441,207 @@ func decodeToolInvocations(value any) ([]toolInvocation, error) {
 		calls = append(calls, *call)
 	}
 	return calls, nil
+}
+
+func decodeToolArguments(value any) (map[string]any, error) {
+	switch typed := value.(type) {
+	case nil:
+		return map[string]any{}, nil
+	case map[string]any:
+		return typed, nil
+	case string:
+		raw := strings.TrimSpace(typed)
+		if raw == "" {
+			return map[string]any{}, nil
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+			return nil, fmt.Errorf("tool call arguments: decode JSON string: %w", err)
+		}
+		if decoded == nil {
+			return map[string]any{}, nil
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("tool call arguments: unsupported type %T", value)
+	}
+}
+
+func nestedToolInvocationPayload(payload map[string]any) (map[string]any, bool) {
+	if functionPayload, ok := payload["function"].(map[string]any); ok {
+		return functionPayload, true
+	}
+	if hasToolInvocationName(payload) {
+		return nil, false
+	}
+	for key, value := range payload {
+		if !isToolArgumentKey(key) {
+			continue
+		}
+		nested, ok := value.(map[string]any)
+		if ok && hasToolInvocationName(nested) {
+			return nested, true
+		}
+	}
+	return nil, false
+}
+
+func hasToolInvocationName(payload map[string]any) bool {
+	_, ok := toolInvocationName(payload)
+	return ok
+}
+
+func toolInvocationName(payload map[string]any) (string, bool) {
+	for _, key := range []string{"name", "function"} {
+		name, ok := payload[key].(string)
+		if ok && strings.TrimSpace(name) != "" {
+			return name, true
+		}
+	}
+	for _, prefix := range []string{"tool", "action", "function", "helper", "call"} {
+		key := prefix + "_name"
+		name, ok := payload[key].(string)
+		if ok && strings.TrimSpace(name) != "" {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func decodeToolInvocationArguments(payload map[string]any) (map[string]any, error) {
+	if key, explicit := explicitToolArgumentsValue(payload); explicit != nil {
+		arguments, err := decodeToolArguments(explicit)
+		if err == nil {
+			return arguments, nil
+		}
+		if isScalarToolArgumentValue(explicit) {
+			return map[string]any{scalarToolArgumentKey(key): explicit}, nil
+		}
+		return nil, err
+	}
+
+	inline := make(map[string]any)
+	for key, value := range payload {
+		if isToolInvocationMetadataKey(key) {
+			continue
+		}
+		inline[key] = value
+	}
+	if len(inline) == 0 {
+		return map[string]any{}, nil
+	}
+	return inline, nil
+}
+
+func isToolInvocationMetadataKey(key string) bool {
+	switch key {
+	case "name", "function", "action", "id", "type", "action_id", "action_type", "call_id", "call_type":
+		return true
+	default:
+		return isToolNameKey(key) || isToolArgumentKey(key)
+	}
+}
+
+func explicitToolArgumentsValue(payload map[string]any) (string, any) {
+	for _, key := range []string{"arguments", "args", "parameters"} {
+		if value, ok := payload[key]; ok {
+			return key, value
+		}
+	}
+	for _, prefix := range []string{"tool", "action", "function", "helper", "call"} {
+		for _, suffix := range []string{"_input", "_args", "_params", "_parameters"} {
+			key := prefix + suffix
+			if value, ok := payload[key]; ok {
+				return key, value
+			}
+		}
+	}
+	return "", nil
+}
+
+func isToolNameKey(key string) bool {
+	if key == "name" || key == "function" {
+		return true
+	}
+	if strings.HasSuffix(key, "_name") {
+		return isToolAliasPrefix(strings.TrimSuffix(key, "_name"))
+	}
+	return false
+}
+
+func isToolArgumentKey(key string) bool {
+	switch key {
+	case "arguments", "args", "parameters":
+		return true
+	}
+	for _, suffix := range []string{"_args", "_params", "_parameters", "_input"} {
+		if strings.HasSuffix(key, suffix) {
+			return isToolAliasPrefix(strings.TrimSuffix(key, suffix))
+		}
+	}
+	return false
+}
+
+func isToolAliasPrefix(prefix string) bool {
+	switch prefix {
+	case "tool", "action", "function", "helper", "call":
+		return true
+	default:
+		return false
+	}
+}
+
+func isScalarToolArgumentValue(value any) bool {
+	switch value.(type) {
+	case nil, bool, float64, string:
+		return true
+	default:
+		return false
+	}
+}
+
+func scalarToolArgumentKey(key string) string {
+	if strings.HasSuffix(key, "_input") {
+		return "input"
+	}
+	if strings.HasSuffix(key, "_args") {
+		return "args"
+	}
+	if strings.HasSuffix(key, "_params") || strings.HasSuffix(key, "_parameters") || key == "parameters" {
+		return "parameters"
+	}
+	return "value"
+}
+
+func decodeSyntheticToolInvocation(payload map[string]any) (*toolInvocation, bool) {
+	name := syntheticToolInvocationName(payload)
+	if name == "" {
+		return nil, false
+	}
+
+	arguments := make(map[string]any)
+	for key, value := range payload {
+		if isToolInvocationMetadataKey(key) {
+			continue
+		}
+		arguments[key] = value
+	}
+	return &toolInvocation{Name: name, Arguments: arguments}, true
+}
+
+func syntheticToolInvocationName(payload map[string]any) string {
+	for _, key := range []string{"action_type", "type"} {
+		name, ok := payload[key].(string)
+		if !ok {
+			continue
+		}
+		trimmed := strings.TrimSpace(name)
+		switch trimmed {
+		case "", "function", "call":
+			continue
+		default:
+			return trimmed
+		}
+	}
+	return ""
 }

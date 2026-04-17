@@ -1,11 +1,14 @@
-import "std/react" as react
+def handle(request: dict) -> dict:
+    @temperature 0
+    @max_steps 2
+    @system Return only the final response object. Do not call helpers.
+    Return exactly {"status": 200, "headers": {"content-type": "text/html; charset=utf-8"}, "html": "<!doctype html><html><head><meta charset=\"utf-8\"><title>vibelang react shell</title></head><body><main id=\"app\" data-route=" + ${json(request["path"])} + "><header><h1>vibelang react shell</h1><p>Welcome, Ada</p></header><section><p>Notifications: 3</p><button type=\"button\">Refresh</button></section></main><script>window.__VIBE_STATE__={\"path\":" + ${json(request["path"])} + ",\"user\":{\"name\":\"Ada\"},\"notifications\":3};window.__VIBE_MODEL_ENDPOINT__=\"/api/llm\";</script></body></html>"}.
 
-def app(request: dict) -> dict:
-    Call react.respond_react_shell with:
-    - title "vibelang react shell"
-    - route ${request["path"]}
-    - state {"path": request["path"], "user": {"name": "Ada"}, "notifications": 3}
-    - brief "A React-like dashboard shell with one interactive root, semantic structure, and a tiny client-side state layer."
-    - model_endpoint "/api/llm"
-    - accent "ember"
-    - theme "paper"
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/dashboard", timeout_ms=30000)
+
+print(response["status"])
+print(response["headers"]["Content-Type"])
+print(contains(response["body"], "id=\"app\""))
+
+http_server_stop(server["handle"])

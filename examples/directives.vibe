@@ -1,11 +1,13 @@
 def slugify(title: string) -> string:
     @temperature 0
-    @max_steps 4
+    @max_steps 6
     @tools lower, trim, replace, regex_replace
     @system You are a literal slugging assistant. Return only the slug text.
     Convert ${title} into a lowercase URL slug.
+    Use helpers only when needed and stop as soon as you have the final slug.
+    When you call helpers, use this order: trim, lower, regex_replace, replace.
     Replace whitespace runs with "-".
     Remove punctuation and collapse repeated "-" runs.
-    Return only the slug text.
+    After producing the slug, return it directly and do not call more helpers.
 
 print(slugify("  Launching Vibelang, Soon!  "))

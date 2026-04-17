@@ -1749,6 +1749,518 @@ print(summarize_weather("Berlin"))
 	}
 }
 
+func TestInterpreterSupportsGemmaStyleJSONFunctionCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"function\": \"upper\",\n  \"args\": {\n    \"text\": \"berlin\"\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaArgsWrappedToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"args\": {\n    \"tool_name\": \"upper\",\n    \"tool_input\": {\n      \"text\": \"berlin\"\n    }\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaActionArgsWrappedToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"action_args\": {\n    \"tool_name\": \"upper\",\n    \"tool_args\": {\n      \"text\": \"berlin\"\n    }\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterRejectsUnknownHelpersAndLetsModelRecover(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","function":"google_search","args":{"query":"berlin weather"}}`,
+			`{"action":"return","value":"Berlin stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "Available helper functions: none") {
+		t.Fatalf("follow-up prompt did not switch to return-only mode:\n%s", client.prompts[1])
+	}
+	if !strings.Contains(client.prompts[1], `google_search({"query":"berlin weather"}) => rejected: the helper google_search is not available`) {
+		t.Fatalf("follow-up prompt did not include unknown-helper rejection:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterAllowsRepeatedUnknownHelperRejectionsBeforeRecovery(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","function":"google_search","args":{"query":"berlin weather"}}`,
+			`{"action":"call","function":"google_search","args":{"query":"berlin weather"}}`,
+			`{"action":"return","value":"Berlin stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:      client,
+		Stdout:     &stdout,
+		MaxAISteps: 4,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 3 {
+		t.Fatalf("expected 3 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[2], `google_search({"query":"berlin weather"}) => rejected: the helper google_search is not available`) {
+		t.Fatalf("third prompt did not include unknown-helper rejection history:\n%s", client.prompts[2])
+	}
+}
+
+func TestInterpreterAcceptsScalarUnknownHelperInputForRecovery(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","args":{"tool_name":"google_search","tool_input":"berlin weather"}}`,
+			`{"action":"return","value":"Berlin stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], `google_search({"input":"berlin weather"}) => rejected: the helper google_search is not available`) {
+		t.Fatalf("follow-up prompt did not include scalar-input rejection:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterTreatsExecuteCodeRequestsAsUnknownHelpers(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","action_type":"execute_code","code":"print(1)"}`,
+			`{"action":"return","value":"Berlin stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], `execute_code({"code":"print(1)"}) => rejected: the helper execute_code is not available`) {
+		t.Fatalf("follow-up prompt did not include execute_code rejection:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaActionNameAndParamsToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"action_name\": \"upper\",\n  \"action_params\": {\n    \"text\": \"berlin\"\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaActionInputWrappedToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"action_input\": {\n    \"tool_name\": \"upper\",\n    \"tool_input\": {\n      \"text\": \"berlin\"\n    }\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaActionInputInlineArgsToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"action_input\": {\n    \"tool_name\": \"upper\",\n    \"text\": \"berlin\"\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaActionParametersToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"action_name\": \"upper\",\n  \"action_parameters\": {\n    \"text\": \"berlin\"\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaBareToolInvocationObjects(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"tool_name\": \"upper\",\n  \"parameters\": {\n    \"text\": \"berlin\"\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsGemmaFunctionNameAndArgsToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"```json\n{\n  \"action\": \"call\",\n  \"function_name\": \"upper\",\n  \"function_args\": {\n    \"text\": \"berlin\"\n  }\n}\n```",
+			`{"action":"return","value":"BERLIN stays clear today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include tool result:\n%s", client.prompts[1])
+	}
+}
+
 func TestInterpreterRunsDeferredExpressionsInLIFOOrder(t *testing.T) {
 	source := `print("start")
 defer print("first cleanup")

@@ -1,11 +1,14 @@
 macro even_numbers(limit: int) -> list[int]:
-    Return one valid vibelang expression that builds the even numbers below ${limit} * 2.
-    Prefer using range with explicit named arguments.
+    @max_steps 2
+    @system Return action=expand directly. Do not call helper functions.
+    Return exactly this vibelang expression:
+    range(start=0, stop=${limit * 2}, step=2)
 
 macro response_ok(body: string) -> dict:
-    Return one valid vibelang expression for a dict with status 200,
-    headers {"content-type": "text/plain; charset=utf-8"},
-    and body ${body}.
+    @max_steps 2
+    @system Return action=expand directly. Do not call helper functions.
+    Return exactly this vibelang expression:
+    {"status": 200, "headers": {"content-type": "text/plain; charset=utf-8"}, "body": ${json(body)}}
 
 numbers = @even_numbers(5)
 reply = @response_ok("macro expanded " + json(numbers))

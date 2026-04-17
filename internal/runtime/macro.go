@@ -96,11 +96,18 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs("", macro.directives)
+	if !shouldExposeImplicitTools(instructions, tools, macro.directives) {
+		tools = nil
+	}
 	modelTools, err := buildModelToolDefinitions(tools)
 	if err != nil {
 		return nil, err
 	}
 	actionSchema, err := buildMacroActionSchema(tools)
+	if err != nil {
+		return nil, err
+	}
+	expandOnlySchema, err := buildMacroActionSchema(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +118,16 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 	}
 
 	for step := 0; step < maxSteps; step++ {
-		prompt, err := buildMacroPrompt(macro, instructions, scope, tools, history, actionSchema)
+		promptTools := tools
+		requestTools := modelTools
+		requestSchema := actionSchema
+		if shouldForceDirectAnswerAfterUnknownHelper(history) {
+			promptTools = nil
+			requestTools = nil
+			requestSchema = expandOnlySchema
+		}
+
+		prompt, err := buildMacroPrompt(macro, instructions, scope, promptTools, history, requestSchema)
 		if err != nil {
 			return nil, err
 		}
@@ -119,8 +135,8 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 		response, err := modelClient.Generate(ctx, model.Request{
 			System:      composeSystemPrompt(macroSystemPrompt(), macro.directives),
 			Prompt:      prompt,
-			JSONSchema:  actionSchema,
-			Tools:       modelTools,
+			JSONSchema:  requestSchema,
+			Tools:       requestTools,
 			Temperature: macro.directives.Temperature,
 			MaxTokens:   macro.directives.MaxTokens,
 		})
@@ -151,7 +167,10 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 
 			action, err = decodeAIMacroAction(response.Text)
 			if err != nil {
-				return nil, fmt.Errorf("%s returned invalid macro action: %w", macro.Name(), err)
+				action, err = i.repairMacroAction(ctx, modelClient, macro, instructions, scope, response.Text, expandOnlySchema)
+				if err != nil {
+					return nil, fmt.Errorf("%s returned invalid macro action: %w", macro.Name(), err)
+				}
 			}
 		}
 
@@ -196,6 +215,36 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 	return nil, fmt.Errorf("%s exceeded the maximum AI tool steps of %d", macro.Name(), maxSteps)
 }
 
+func (i *Interpreter) repairMacroAction(ctx context.Context, modelClient model.Client, macro *AIMacro, instructions string, scope map[string]any, invalidResponse string, schema map[string]any) (macroAction, error) {
+	prompt, err := buildMacroRepairPrompt(macro, instructions, scope, invalidResponse, schema)
+	if err != nil {
+		return macroAction{}, err
+	}
+
+	response, err := modelClient.Generate(ctx, model.Request{
+		System:      composeSystemPrompt(macroSystemPrompt(), macro.directives),
+		Prompt:      prompt,
+		JSONSchema:  schema,
+		Temperature: macro.directives.Temperature,
+		MaxTokens:   macro.directives.MaxTokens,
+	})
+	i.incrementMetric("ai_model_requests_total", 1)
+	if err != nil {
+		i.incrementMetric("ai_model_request_errors_total", 1)
+		return macroAction{}, fmt.Errorf("%s macro repair request failed: %w", macro.Name(), err)
+	}
+	if len(response.ToolCalls) > 0 {
+		return macroAction{}, fmt.Errorf("%s macro repair returned unexpected native tool calls", macro.Name())
+	}
+	i.tracef("%s repaired macro response: %s", macro.Name(), response.Text)
+
+	action, err := decodeAIMacroAction(response.Text)
+	if err != nil {
+		return macroAction{}, err
+	}
+	return action, nil
+}
+
 type macroAction struct {
 	Action string
 	Source string
@@ -206,7 +255,20 @@ type macroAction struct {
 func (i *Interpreter) executeMacroToolInvocation(ctx context.Context, macro *AIMacro, call toolInvocation, history []ToolEvent) ([]ToolEvent, error) {
 	callee, ok := i.lookupTool(call.Name)
 	if !ok {
-		return nil, fmt.Errorf("%s requested unknown helper %q", macro.Name(), call.Name)
+		arguments := call.Arguments
+		if arguments == nil {
+			arguments = map[string]any{}
+		}
+		rejection := fmt.Sprintf("the helper %s is not available; choose one of the listed helpers or return a value", call.Name)
+		i.incrementMetric("ai_tool_call_rejections_total", 1)
+		i.tracef("%s rejected unknown helper %s with %s: %s", macro.Name(), call.Name, jsonString(arguments), rejection)
+		history = append(history, ToolEvent{
+			Name:      call.Name,
+			Arguments: arguments,
+			Error:     rejection,
+			Rejected:  true,
+		})
+		return history, nil
 	}
 	spec := callee.ToolSpec()
 	callArgs := namedCallArguments(call.Arguments)
@@ -300,13 +362,13 @@ func decodeMacroActionPayload(payload map[string]any) (macroAction, error) {
 			}
 			return macroAction{Action: "expand", Source: strings.TrimSpace(source)}, nil
 		case "call":
-			call, err := decodeToolInvocation(payload["call"])
+			call, err := decodeActionToolInvocation(payload)
 			if err != nil {
 				return macroAction{}, err
 			}
 			return macroAction{Action: "call", Call: call}, nil
 		case "call_many":
-			calls, err := decodeToolInvocations(payload["calls"])
+			calls, err := decodeActionToolInvocations(payload)
 			if err != nil {
 				return macroAction{}, err
 			}
@@ -337,6 +399,13 @@ func decodeMacroActionPayload(payload map[string]any) (macroAction, error) {
 			return macroAction{}, err
 		}
 		return macroAction{Action: "call_many", Calls: calls}, nil
+	}
+	if hasToolInvocationPayload(payload) {
+		call, err := decodeToolInvocation(payload)
+		if err != nil {
+			return macroAction{}, err
+		}
+		return macroAction{Action: "call", Call: call}, nil
 	}
 
 	return macroAction{}, fmt.Errorf("response did not include a valid macro action")

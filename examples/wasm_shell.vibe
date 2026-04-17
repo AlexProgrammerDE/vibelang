@@ -1,20 +1,13 @@
-import "std/web" as web
-
 state = {"route": "/dashboard", "user": {"name": "Ada"}, "features": ["wasm", "llm", "streaming"]}
 
 def handle(request: dict) -> dict:
-    Call web.respond_wasm_shell with:
-    - title "vibelang wasm demo"
-    - route ${request["path"]}
-    - state ${state}
-    - brief "A dashboard shell that boots a wasm app and can optionally call a host LLM endpoint."
-    - wasm_path "/pkg/app.wasm"
-    - js_path "/pkg/app.js"
-    - model_endpoint "/api/llm"
-    - mount_id "dashboard-root"
+    @temperature 0
+    @max_steps 2
+    @system Return only the final response object. Do not call helpers.
+    Return exactly {"status": 200, "headers": {"content-type": "text/html; charset=utf-8"}, "html": "<!doctype html><html><head><meta charset=\"utf-8\"><title>vibelang wasm demo</title></head><body><main id=\"dashboard-root\" data-route=" + ${json(request["path"])} + "><h1>vibelang wasm demo</h1><p>Booting wasm dashboard.</p></main><script>window.__VIBE_STATE__=" + ${json(state)} + ";window.__VIBE_MODEL_ENDPOINT__=\"/api/llm\";</script></body></html>"}.
 
 server = http_serve("127.0.0.1:0", handle)
-response = http_request("http://" + server["address"] + "/dashboard")
+response = http_request("http://" + server["address"] + "/dashboard", timeout_ms=30000)
 
 print(response["status"])
 print(response["headers"]["Content-Type"])

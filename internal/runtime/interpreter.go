@@ -964,13 +964,26 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 	if err != nil {
 		return nil, err
 	}
+	returnOnlySchema, err := buildAIActionSchema(function.Def.ReturnType.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 	maxSteps := i.maxAISteps
 	if directives.MaxSteps != nil {
 		maxSteps = *directives.MaxSteps
 	}
 
 	for step := 0; step < maxSteps; step++ {
-		prompt, err := buildPrompt(function, instructions, args, tools, history, chain, actionSchema)
+		promptTools := tools
+		requestTools := modelTools
+		requestSchema := actionSchema
+		if shouldForceDirectAnswerAfterUnknownHelper(history) || shouldForceDirectAnswerAfterToolProgress(history, directives) {
+			promptTools = nil
+			requestTools = nil
+			requestSchema = returnOnlySchema
+		}
+
+		prompt, err := buildPrompt(function, instructions, args, promptTools, history, chain, requestSchema)
 		if err != nil {
 			return nil, err
 		}
@@ -978,8 +991,8 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 		response, err := modelClient.Generate(ctx, model.Request{
 			System:      composeSystemPrompt(aiSystemPrompt(), directives),
 			Prompt:      prompt,
-			JSONSchema:  actionSchema,
-			Tools:       modelTools,
+			JSONSchema:  requestSchema,
+			Tools:       requestTools,
 			Temperature: directives.Temperature,
 			MaxTokens:   directives.MaxTokens,
 		})
@@ -1066,7 +1079,20 @@ func (i *Interpreter) invokeTool(ctx context.Context, callable ToolCallable, bou
 func (i *Interpreter) executeAIFunctionToolInvocation(ctx context.Context, function *AIFunction, call toolInvocation, directives aiDirectiveConfig, excludeTool string, chain []aiCallFrame, depth int, history []ToolEvent) ([]ToolEvent, error) {
 	callee, ok := i.lookupTool(call.Name)
 	if !ok {
-		return nil, fmt.Errorf("%s requested unknown helper %q", function.Name(), call.Name)
+		arguments := call.Arguments
+		if arguments == nil {
+			arguments = map[string]any{}
+		}
+		rejection := fmt.Sprintf("the helper %s is not available; choose one of the listed helpers or return a value", call.Name)
+		i.incrementMetric("ai_tool_call_rejections_total", 1)
+		i.tracef("%s rejected unknown helper %s with %s: %s", function.Name(), call.Name, jsonString(arguments), rejection)
+		history = append(history, ToolEvent{
+			Name:      call.Name,
+			Arguments: arguments,
+			Error:     rejection,
+			Rejected:  true,
+		})
+		return history, nil
 	}
 	spec := callee.ToolSpec()
 	callArgs := namedCallArguments(call.Arguments)

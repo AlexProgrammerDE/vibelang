@@ -44,6 +44,47 @@ print(result)
 	}
 }
 
+func TestInterpreterRecoversFromInvalidMacroResponses(t *testing.T) {
+	source := `macro double_expr(value: int) -> int:
+    Return the vibelang expression that doubles ${value}.
+
+result = @double_expr(21)
+print(result)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			"action_call:\n  action: \"call\"\n  args:\n    value: 21",
+			`{"action":"expand","source":"21 + 21"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "42\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "42\n", stdout.String())
+	}
+
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "Previous invalid response") {
+		t.Fatalf("repair prompt did not include the invalid macro response:\n%s", client.prompts[1])
+	}
+}
+
 func TestInterpreterImportsMacrosFromModules(t *testing.T) {
 	tempDir := t.TempDir()
 	modulePath := filepath.Join(tempDir, "shared.vibe")

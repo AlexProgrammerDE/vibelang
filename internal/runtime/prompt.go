@@ -162,11 +162,48 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 	builder.WriteString("Return JSON only. Keep helper arguments valid for the declared parameter names.\n")
 	builder.WriteString(fmt.Sprintf("The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
 	builder.WriteString("Every helper call must use exactly the declared argument names and argument types.\n")
+	builder.WriteString("Only the helper names listed above are valid. Never invent or guess a helper name.\n")
+	if hasUnavailableHelperRejection(history) {
+		builder.WriteString("One or more unavailable helper names were already rejected. Do not request them again. If you can finish without a listed helper, return the final value directly.\n")
+	}
 	builder.WriteString("Use action=call_many only when the listed helper calls can be executed sequentially from the current state without waiting for another model decision.\n")
 	builder.WriteString("Never request a helper call that matches any active AI call stack entry.\n")
 	builder.WriteString("Never retry a helper call that already appears as rejected or failed in the tool history.\n")
 
 	return builder.String(), nil
+}
+
+func hasUnavailableHelperRejection(history []ToolEvent) bool {
+	for _, event := range history {
+		if event.Rejected && strings.Contains(event.Error, "is not available") {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldForceDirectAnswerAfterUnknownHelper(history []ToolEvent) bool {
+	if len(history) == 0 {
+		return false
+	}
+	for _, event := range history {
+		if !event.Rejected || !strings.Contains(event.Error, "is not available") {
+			return false
+		}
+	}
+	return true
+}
+
+func shouldForceDirectAnswerAfterToolProgress(history []ToolEvent, directives aiDirectiveConfig) bool {
+	if len(history) == 0 || len(directives.AllowTools) == 0 {
+		return false
+	}
+	for _, event := range history {
+		if event.Rejected || event.Error != "" {
+			return false
+		}
+	}
+	return len(history) >= len(directives.AllowTools)
 }
 
 func (i *Interpreter) renderPromptText(ctx context.Context, body string, values map[string]any) (string, error) {
@@ -364,4 +401,20 @@ func sortedToolSpecs(tools map[string]ToolCallable, current string, directives a
 		specs = append(specs, tools[name].ToolSpec())
 	}
 	return specs
+}
+
+func shouldExposeImplicitTools(instructions string, tools []ToolSpec, directives aiDirectiveConfig) bool {
+	if len(tools) == 0 {
+		return false
+	}
+	if len(directives.AllowTools) > 0 || len(directives.DenyTools) > 0 {
+		return true
+	}
+	lowered := strings.ToLower(instructions)
+	for _, tool := range tools {
+		if strings.Contains(lowered, strings.ToLower(tool.Name)) {
+			return true
+		}
+	}
+	return false
 }
