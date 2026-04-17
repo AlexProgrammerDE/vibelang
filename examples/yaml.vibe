@@ -1,6 +1,7 @@
-workspace = join_path([cwd(), "tmp", "yaml-example"])
+workspace = join_path([env("TMPDIR") or "/tmp", "vibelang-yaml-example"])
 make_dir(workspace)
 path = join_path([workspace, "config.yaml"])
+defer delete_file(path)
 
 write_yaml(path, {"name": "Ada", "enabled": true, "ports": [8080, 8081]})
 payload = read_yaml(path)
