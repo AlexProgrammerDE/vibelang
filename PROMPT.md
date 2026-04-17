@@ -43,6 +43,12 @@ You can use gh CLI.
 - macros (macros can also be written with AI)
 - module system (golang-like github module import & local module import)
 - webserver & web rendering support via wasm (e.g. like react but ai generates the html/css/etc.)
+- react-like rendering support. just use the host llm endpoint when running in wasm mode
+- signalings/web apis/everything vibecoded
+- http request handlers as llm vibecoded (so every request is handled by an llm)
+- or declarative and the ai like renders html/css/js once like a template. figure something out
+
+^^ important next ideas
 
 add every major feature you can think of for the std and make sure the gemma 4 model has access
 
