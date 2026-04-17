@@ -122,6 +122,7 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 
 	builder.WriteString("Return JSON only. Keep helper arguments valid for the declared parameter names.\n")
 	builder.WriteString(fmt.Sprintf("The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
+	builder.WriteString("Never retry a helper call that already appears as rejected or failed in the tool history.\n")
 
 	return builder.String(), nil
 }

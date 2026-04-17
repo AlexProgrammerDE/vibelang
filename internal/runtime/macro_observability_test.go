@@ -122,6 +122,37 @@ print(contains(pretty, "\n"))
 	}
 }
 
+func TestInterpreterProvidesCollectionHelpers(t *testing.T) {
+	source := `record = {"name": "Ada"}
+record = dict_set(record, "city", "Berlin")
+merged = dict_merge(record, {"city": "London", "role": "scientist"})
+values = unique([3, 1, 3, 2, 1])
+
+print(dict_has(merged, "role"))
+print(dict_get(merged, "city"))
+print(json(sorted(values)))
+print(sum([1, 2, 3, 4]))
+print(min(["delta", "alpha", "charlie"]))
+print(max([2, 9, 4]))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "true\nLondon\n[1,2,3]\n10\nalpha\n9\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterProvidesStructuredLogging(t *testing.T) {
 	source := `log("booted", fields={"service": "demo", "port": 8080})`
 

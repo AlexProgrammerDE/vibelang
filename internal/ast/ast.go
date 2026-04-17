@@ -104,6 +104,21 @@ type IfStmt struct {
 func (*IfStmt) stmtNode()         {}
 func (s *IfStmt) LineNumber() int { return s.Line }
 
+type MatchCase struct {
+	Line    int
+	Pattern Expr
+	Body    []Stmt
+}
+
+type MatchStmt struct {
+	Line    int
+	Subject Expr
+	Cases   []MatchCase
+}
+
+func (*MatchStmt) stmtNode()         {}
+func (s *MatchStmt) LineNumber() int { return s.Line }
+
 type WhileStmt struct {
 	Line      int
 	Condition Expr

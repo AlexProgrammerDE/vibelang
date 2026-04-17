@@ -201,6 +201,26 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 			return i.executeBlock(ctx, env, node.Then, moduleDir)
 		}
 		return i.executeBlock(ctx, env, node.Else, moduleDir)
+	case *ast.MatchStmt:
+		subject, err := i.evaluateExpression(ctx, env, node.Subject)
+		if err != nil {
+			return signalNone, err
+		}
+		for _, matchCase := range node.Cases {
+			bindings := make(map[string]any)
+			matched, err := matchPattern(matchCase.Pattern, subject, bindings)
+			if err != nil {
+				return signalNone, err
+			}
+			if !matched {
+				continue
+			}
+			for name, value := range bindings {
+				env.Set(name, value)
+			}
+			return i.executeBlock(ctx, env, matchCase.Body, moduleDir)
+		}
+		return signalNone, nil
 	case *ast.WhileStmt:
 		for {
 			condition, err := i.evaluateCondition(ctx, env, node.Condition)
@@ -319,6 +339,100 @@ func (i *Interpreter) evaluateCondition(ctx context.Context, env *Environment, e
 		return false, err
 	}
 	return truthy(value), nil
+}
+
+func matchPattern(pattern ast.Expr, subject any, bindings map[string]any) (bool, error) {
+	switch node := pattern.(type) {
+	case *ast.Identifier:
+		if node.Name == "_" {
+			return true, nil
+		}
+		if value, exists := bindings[node.Name]; exists {
+			return reflect.DeepEqual(value, subject), nil
+		}
+		bindings[node.Name] = subject
+		return true, nil
+	case *ast.Literal:
+		return reflect.DeepEqual(node.Value, subject), nil
+	case *ast.UnaryExpr:
+		value, ok := unaryPatternLiteral(node)
+		if !ok {
+			return false, fmt.Errorf("unsupported match pattern %T", pattern)
+		}
+		return reflect.DeepEqual(value, subject), nil
+	case *ast.ListLiteral:
+		values, ok := asList(subject)
+		if !ok || len(values) != len(node.Elements) {
+			return false, nil
+		}
+		for index, element := range node.Elements {
+			matched, err := matchPattern(element, values[index], bindings)
+			if err != nil || !matched {
+				return matched, err
+			}
+		}
+		return true, nil
+	case *ast.DictLiteral:
+		values, ok := asMap(subject)
+		if !ok {
+			return false, nil
+		}
+		for _, item := range node.Items {
+			key, err := patternKey(item.Key)
+			if err != nil {
+				return false, err
+			}
+			value, exists := values[key]
+			if !exists {
+				return false, nil
+			}
+			matched, err := matchPattern(item.Value, value, bindings)
+			if err != nil || !matched {
+				return matched, err
+			}
+		}
+		return true, nil
+	default:
+		return false, fmt.Errorf("unsupported match pattern %T", pattern)
+	}
+}
+
+func unaryPatternLiteral(pattern *ast.UnaryExpr) (any, bool) {
+	if pattern.Operator != "-" {
+		return nil, false
+	}
+	literal, ok := pattern.Right.(*ast.Literal)
+	if !ok {
+		return nil, false
+	}
+	switch value := literal.Value.(type) {
+	case int64:
+		return -value, true
+	case float64:
+		return -value, true
+	default:
+		return nil, false
+	}
+}
+
+func patternKey(expression ast.Expr) (string, error) {
+	switch node := expression.(type) {
+	case *ast.Literal:
+		return stringify(node.Value), nil
+	case *ast.Identifier:
+		if node.Name == "_" {
+			return "", fmt.Errorf("wildcard cannot be used as a dict pattern key")
+		}
+		return node.Name, nil
+	case *ast.UnaryExpr:
+		value, ok := unaryPatternLiteral(node)
+		if !ok {
+			return "", fmt.Errorf("dict pattern keys must be literal values")
+		}
+		return stringify(value), nil
+	default:
+		return "", fmt.Errorf("dict pattern keys must be literal values")
+	}
 }
 
 func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, expression ast.Expr) (any, error) {
@@ -733,6 +847,10 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			i.incrementMetric("ai_tool_calls_total", 1)
 			i.tracef("%s calling %s with %s", function.Name(), action.Call.Name, jsonString(bound))
 			if rejection := rejectAIToolCall(action.Call.Name, bound, excludeTool, chain); rejection != "" {
+				if repeatedRejectedToolCall(history, action.Call.Name, bound) {
+					i.incrementMetric("ai_tool_call_retries_blocked_total", 1)
+					return nil, fmt.Errorf("%s repeatedly requested the rejected helper %s(%s): %s", function.Name(), action.Call.Name, jsonString(bound), rejection)
+				}
 				i.incrementMetric("ai_tool_call_rejections_total", 1)
 				i.tracef("%s rejected call to %s with %s: %s", function.Name(), action.Call.Name, jsonString(bound), rejection)
 				history = append(history, ToolEvent{
@@ -802,6 +920,19 @@ func rejectAIToolCall(name string, args map[string]any, excludeTool string, chai
 		}
 	}
 	return ""
+}
+
+func repeatedRejectedToolCall(history []ToolEvent, name string, args map[string]any) bool {
+	signature := aiCallSignature(name, args)
+	for _, event := range history {
+		if !event.Rejected {
+			continue
+		}
+		if aiCallSignature(event.Name, event.Arguments) == signature {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *Interpreter) evaluateParameterDefaults(ctx context.Context, env *Environment, params []ast.Param) (map[string]any, error) {

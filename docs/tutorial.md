@@ -103,6 +103,20 @@ print(json(names))
 print(json(lengths))
 ```
 
+Structural pattern matching is available for deterministic branching on data shape:
+
+```python
+packet = {"type": "message", "payload": ["alpha", "beta"], "meta": {"city": "Berlin"}}
+
+match packet:
+    case {"type": "ping"}:
+        print("pong")
+    case {"type": "message", "payload": [head, tail], "meta": {"city": city}}:
+        print(head)
+        print(tail)
+        print(city)
+```
+
 Modules work with ordinary files:
 
 ```python
@@ -129,7 +143,8 @@ Bundled `std` modules can be imported directly:
 import "std/web" as web
 
 def handle(request: dict) -> dict:
-    Call web.respond_html with the title "demo" and a brief describing ${request["path"]}.
+    Call web.render_app_shell with the title "demo", the route ${request["path"]}, and initial state {"path": request["path"]}.
+    Return a dict with html set to that app shell.
 ```
 
 The runtime also has native concurrency primitives:
@@ -199,6 +214,7 @@ When you only want to check parsing or module resolution, use `--check`:
 - Read the [reference](reference.md) for language syntax and builtins.
 - Run [examples/modules/main.vibe](../examples/modules/main.vibe) to see imports and module-backed AI functions.
 - Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
+- Run [examples/match.vibe](../examples/match.vibe) to see structural pattern matching with captures.
 - Run [examples/slices.vibe](../examples/slices.vibe) to see slicing on strings and lists.
 - Run [examples/comprehensions.vibe](../examples/comprehensions.vibe) to see list and dict comprehensions.
 - Run [examples/tool_chain.vibe](../examples/tool_chain.vibe) to see AI tool calls in action.

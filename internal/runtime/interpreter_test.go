@@ -58,6 +58,37 @@ print(total)
 	}
 }
 
+func TestInterpreterSupportsMatchStatements(t *testing.T) {
+	source := `packet = {"type": "message", "payload": ["alpha", "beta"], "meta": {"city": "Berlin"}}
+
+match packet:
+    case {"type": "ping"}:
+        print("pong")
+    case {"type": "message", "payload": [head, tail], "meta": {"city": city}}:
+        print(head)
+        print(tail)
+        print(city)
+    case _:
+        print("fallback")
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "alpha\nbeta\nBerlin\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterRunsAIFunction(t *testing.T) {
 	source := `def add_one(value: int) -> int:
     Add one to the input and return the integer result.
@@ -465,6 +496,40 @@ print(summarize_weather("Berlin"))
 	}
 	if !strings.Contains(client.prompts[1], "rejected") {
 		t.Fatalf("second prompt did not include the rejected self-call history:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterFailsFastWhenModelRepeatsRejectedSelfCall(t *testing.T) {
+	source := `def summarize_weather(city: string, tone: string = "crisp") -> string:
+    Write one ${tone} sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"summarize_weather","arguments":{"city":"Berlin","tone":"crisp"}}}`,
+			`{"action":"call","call":{"name":"summarize_weather","arguments":{"city":"Berlin","tone":"crisp"}}}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:      client,
+		Stdout:     &stdout,
+		MaxAISteps: 6,
+	})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if !strings.Contains(err.Error(), "repeatedly requested the rejected helper") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

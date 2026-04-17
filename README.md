@@ -12,11 +12,12 @@
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
+- Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
-- Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, and feeds the rejection back into the next model step.
-- Adds first-class sets, JSON text parsing and formatting helpers, structured logging, and OpenTelemetry trace export.
+- Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
+- Adds first-class sets, dict helpers, list sorting and deduping helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, and runtime metrics.
 - Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
@@ -129,6 +130,22 @@ print(json(names))
 print(json(lengths))
 ```
 
+Pattern matching lets deterministic code branch on data shape before handing the rest to AI:
+
+```python
+packet = {"type": "message", "payload": ["alpha", "beta"], "meta": {"city": "Berlin"}}
+
+match packet:
+    case {"type": "ping"}:
+        print("pong")
+    case {"type": "message", "payload": [head, tail], "meta": {"city": city}}:
+        print(head)
+        print(tail)
+        print(city)
+    case _:
+        print("fallback")
+```
+
 AI macros expand into real expressions before evaluation:
 
 ```python
@@ -198,7 +215,8 @@ HTTP handlers can also be AI-backed:
 import "std/web" as web
 
 def handle(request: dict) -> dict:
-    Call web.respond_html with the title "vibelang demo" and a brief describing ${request["path"]}.
+    Call web.render_app_shell with the title "vibelang demo", the route ${request["path"]}, and initial state {"path": request["path"]}.
+    Return a dict with html set to that app shell.
 
 server = http_serve("127.0.0.1:0", handle)
 response = http_request("http://" + server["address"] + "/hello")
@@ -222,7 +240,7 @@ http_server_stop(server["handle"])
 The deterministic runtime now covers more of the boring work that AI functions should not hallucinate:
 
 - Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`
-- Data: `json_parse`, `json_pretty`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`
+- Data: `json_parse`, `json_pretty`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `sorted`, `unique`, `sum`, `min`, `max`
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
@@ -233,7 +251,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 
 Bundled `std` modules currently include:
 
-- `std/web`: AI helpers for HTML page rendering and HTML HTTP responses
+- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, and HTML HTTP responses
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 
 ## Documentation

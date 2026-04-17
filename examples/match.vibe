@@ -1,0 +1,11 @@
+packet = {"type": "message", "payload": ["alpha", "beta"], "meta": {"city": "Berlin"}}
+
+match packet:
+    case {"type": "ping"}:
+        print("pong")
+    case {"type": "message", "payload": [head, tail], "meta": {"city": city}}:
+        print(head)
+        print(tail)
+        print(city)
+    case _:
+        print("fallback")

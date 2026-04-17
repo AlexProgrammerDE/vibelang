@@ -101,6 +101,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return p.parseFromImport()
 	case lexer.TokenIf:
 		return p.parseIf(indent)
+	case lexer.TokenMatch:
+		return p.parseMatch(indent)
 	case lexer.TokenWhile:
 		return p.parseWhile(indent)
 	case lexer.TokenFor:
@@ -125,6 +127,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return &ast.PassStmt{Line: line.Number}, nil
 	case lexer.TokenElif, lexer.TokenElse:
 		return nil, fmt.Errorf("line %d: %s without matching if", line.Number, line.Tokens[0].Lexeme)
+	case lexer.TokenCase:
+		return nil, fmt.Errorf("line %d: case without matching match", line.Number)
 	default:
 		return p.parseSimpleStatement()
 	}
@@ -556,6 +560,98 @@ func (p *Parser) parseElifChain(indent int) (ast.Stmt, error) {
 		Condition: condition,
 		Then:      thenBody,
 		Else:      elseBody,
+	}, nil
+}
+
+func (p *Parser) parseMatch(indent int) (ast.Stmt, error) {
+	line := p.lines[p.index]
+	subject, err := parseHeaderExpression(line.Tokens[1:], line.Number)
+	if err != nil {
+		return nil, err
+	}
+
+	p.index++
+	caseIndent, ok, err := p.findCodeChildIndent(indent)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("line %d: match block is required", line.Number)
+	}
+
+	cases := make([]ast.MatchCase, 0)
+	for {
+		next, ok := p.peekCodeLine()
+		if !ok || next.Indent < caseIndent {
+			break
+		}
+		if next.Indent > caseIndent {
+			return nil, fmt.Errorf("line %d: unexpected indentation inside match", next.Number)
+		}
+		if len(next.Tokens) == 0 || next.Tokens[0].Kind != lexer.TokenCase {
+			return nil, fmt.Errorf("line %d: match blocks may only contain case clauses", next.Number)
+		}
+
+		matchCase, err := p.parseMatchCase(caseIndent)
+		if err != nil {
+			return nil, err
+		}
+		cases = append(cases, matchCase)
+	}
+
+	if len(cases) == 0 {
+		return nil, fmt.Errorf("line %d: match block must contain at least one case", line.Number)
+	}
+
+	return &ast.MatchStmt{
+		Line:    line.Number,
+		Subject: subject,
+		Cases:   cases,
+	}, nil
+}
+
+func (p *Parser) parseMatchCase(indent int) (ast.MatchCase, error) {
+	line := p.lines[p.index]
+	cursor := newLineCursor(line.Tokens)
+	if _, err := cursor.expect(lexer.TokenCase); err != nil {
+		return ast.MatchCase{}, err
+	}
+
+	patternTokens, err := cursor.collectUntilTopLevel(lexer.TokenColon)
+	if err != nil {
+		return ast.MatchCase{}, err
+	}
+	if len(patternTokens) == 0 {
+		return ast.MatchCase{}, fmt.Errorf("line %d: case pattern is required", line.Number)
+	}
+	pattern, err := parseExpressionTokens(patternTokens)
+	if err != nil {
+		return ast.MatchCase{}, err
+	}
+	if _, err := cursor.expect(lexer.TokenColon); err != nil {
+		return ast.MatchCase{}, err
+	}
+	if !cursor.done() {
+		return ast.MatchCase{}, fmt.Errorf("line %d: unexpected token %q", line.Number, cursor.peek().Lexeme)
+	}
+
+	p.index++
+	bodyIndent, ok, err := p.findCodeChildIndent(indent)
+	if err != nil {
+		return ast.MatchCase{}, err
+	}
+	if !ok {
+		return ast.MatchCase{}, fmt.Errorf("line %d: case block is required", line.Number)
+	}
+	body, err := p.parseStatements(bodyIndent)
+	if err != nil {
+		return ast.MatchCase{}, err
+	}
+
+	return ast.MatchCase{
+		Line:    line.Number,
+		Pattern: pattern,
+		Body:    body,
 	}, nil
 }
 

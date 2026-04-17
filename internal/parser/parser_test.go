@@ -70,6 +70,41 @@ for value in range(1, 4):
 	}
 }
 
+func TestParseMatchStatement(t *testing.T) {
+	source := `match packet:
+    case {"type": "ping"}:
+        print("pong")
+    case {"type": "message", "payload": [head, tail]}:
+        print(head)
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	matchStmt, ok := program.Statements[0].(*ast.MatchStmt)
+	if !ok {
+		t.Fatalf("expected MatchStmt, got %T", program.Statements[0])
+	}
+
+	if len(matchStmt.Cases) != 2 {
+		t.Fatalf("expected 2 cases, got %d", len(matchStmt.Cases))
+	}
+
+	dictPattern, ok := matchStmt.Cases[1].Pattern.(*ast.DictLiteral)
+	if !ok {
+		t.Fatalf("expected dict pattern, got %T", matchStmt.Cases[1].Pattern)
+	}
+	if len(dictPattern.Items) != 2 {
+		t.Fatalf("expected 2 dict pattern items, got %d", len(dictPattern.Items))
+	}
+}
+
 func TestParseInlinePromptsPreserveRawText(t *testing.T) {
 	source := `path = "notes.txt"
 digits = * find the first 5 digits of pi, then return them as a string.

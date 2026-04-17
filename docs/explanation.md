@@ -45,9 +45,9 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 
 - lexical scoping for names
 - module loading with isolated exports
-- collection literals, member access, negative indexing, and Python-style slicing
+- collection literals, member access, structural `match` / `case`, negative indexing, and Python-style slicing
 - loops and conditionals
-- builtins for routine data work
+- builtins for routine data work, including dict updates, list sorting, deduping, and numeric reducers
 - builtin tools for file access, path handling, JSON, strings, environment inspection, HTTP, TCP sockets, local process execution, math, and time
 - Go-backed concurrency primitives for tasks, channels, mutexes, wait groups, and runtime metrics
 - AI-backed HTTP services, so a request can be turned into a normal function call instead of special-case framework code
@@ -76,6 +76,7 @@ The same logic applies to module loading. Relative imports stay simple, but the 
 - User-defined functions are AI-backed only.
 - The model must follow a JSON protocol or execution fails.
 - Helper calls are one at a time.
+- Repeating the same rejected helper call is treated as a hard runtime error.
 - Behavior quality still depends on the local model you run.
 
 Those limits are deliberate. They keep the language small, the runtime understandable, and the failure modes visible.

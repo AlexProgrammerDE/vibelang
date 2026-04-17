@@ -98,9 +98,31 @@ Supported statements:
 - member assignment: `config.name = "updated"`
 - expression statement: `print(value)`
 - conditional: `if ...:`, `elif ...:`, `else:`
+- pattern matching: `match subject:` with one or more `case pattern:` clauses
 - loop: `while ...:` and `for name in iterable:`
 - loop control: `break`, `continue`
 - `pass`
+
+### Match Statement
+
+```python
+match packet:
+    case {"type": "ping"}:
+        print("pong")
+    case {"type": "message", "payload": [head, tail]}:
+        print(head)
+        print(tail)
+    case _:
+        print("fallback")
+```
+
+Notes:
+
+- `match` evaluates the subject expression exactly once.
+- Cases are checked from top to bottom until the first match succeeds.
+- Supported patterns are literals, wildcard `_`, capture names, list patterns, and dict patterns.
+- Capture names bind matched values into the current scope before the case body runs.
+- Dict patterns require the referenced keys to exist and recursively match their values.
 
 ### Expressions
 
@@ -174,6 +196,15 @@ The runtime coerces model outputs to the declared return type when possible.
 - `set_union(left, right)`: union of two sets
 - `set_intersection(left, right)`: intersection of two sets
 - `set_difference(left, right)`: difference of two sets
+- `dict_has(dict, key)`: return whether a dict contains a key
+- `dict_get(dict, key, default=none)`: fetch a dict value with a fallback
+- `dict_set(dict, key, value)`: return a new dict with one assignment applied
+- `dict_merge(left, right)`: merge two dicts with right-hand keys winning
+- `sorted(values, descending=false)`: return a sorted copy of a list
+- `unique(values)`: remove duplicates while preserving first occurrence order
+- `sum(values)`: sum a list of numeric values
+- `min(values)`: smallest value from a non-empty list
+- `max(values)`: largest value from a non-empty list
 - `cwd()`: return the current working directory
 - `glob(pattern)`: return sorted matches for a glob pattern
 - `file_exists(path)`: return whether a path exists
@@ -242,7 +273,7 @@ The runtime coerces model outputs to the declared return type when possible.
 
 Bundled modules:
 
-- `std/web`: AI helpers for HTML rendering and HTML response construction
+- `std/web`: AI helpers for HTML rendering, component fragments, app shells, and HTML response construction
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 
 ## AI Function Protocol
@@ -263,6 +294,7 @@ Behavior:
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Self-recursive helper calls are rejected and fed back into the next model step through tool history.
+- Repeating the same rejected helper call now fails fast instead of burning more model steps.
 - Helper calls are limited by `--max-steps`.
 - Nested AI execution is limited by `--max-depth`.
 

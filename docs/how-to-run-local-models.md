@@ -95,6 +95,7 @@ These settings usually help:
 - keep function instructions specific about shape and type
 - declare return types instead of leaving them as `any`
 - prefer explicit default parameters and keyword arguments when a function has optional inputs
+- keep deterministic work in normal code or helpers, and let the model focus on intent-heavy text generation
 
 ## Troubleshoot Common Failures
 
@@ -111,6 +112,13 @@ These settings usually help:
 - prefer builtin tool names exactly as documented, such as `file_exists` or `write_file`
 - make the caller body explicitly name the helper it should use
 - reduce the number of in-scope helper functions if the program is large
+
+### The model keeps retrying a rejected helper call
+
+- rerun with `--trace` and inspect the tool history section
+- make the function body explicitly state which helper must not be called again
+- split broad AI functions into smaller helper-oriented functions so the next step is obvious
+- if the runtime now fails fast on a repeated rejected helper, treat that as a prompt design bug rather than increasing `--max-steps`
 
 ### The returned value has the wrong type
 

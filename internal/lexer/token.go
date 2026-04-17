@@ -16,6 +16,8 @@ const (
 	TokenIf       TokenKind = "if"
 	TokenElif     TokenKind = "elif"
 	TokenElse     TokenKind = "else"
+	TokenMatch    TokenKind = "match"
+	TokenCase     TokenKind = "case"
 	TokenWhile    TokenKind = "while"
 	TokenFor      TokenKind = "for"
 	TokenIn       TokenKind = "in"
@@ -63,6 +65,8 @@ var keywords = map[string]TokenKind{
 	"if":       TokenIf,
 	"elif":     TokenElif,
 	"else":     TokenElse,
+	"match":    TokenMatch,
+	"case":     TokenCase,
 	"while":    TokenWhile,
 	"for":      TokenFor,
 	"in":       TokenIn,

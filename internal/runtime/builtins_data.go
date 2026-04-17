@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 
 	"vibelang/internal/ast"
 )
@@ -36,6 +38,50 @@ func registerDataBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("set_union", builtinSetUnion, "set", "Return the union of two sets.", ast.Param{Name: "left", Type: ast.TypeRef{Expr: "set"}}, ast.Param{Name: "right", Type: ast.TypeRef{Expr: "set"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("set_intersection", builtinSetIntersection, "set", "Return the intersection of two sets.", ast.Param{Name: "left", Type: ast.TypeRef{Expr: "set"}}, ast.Param{Name: "right", Type: ast.TypeRef{Expr: "set"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("set_difference", builtinSetDifference, "set", "Return the difference of two sets.", ast.Param{Name: "left", Type: ast.TypeRef{Expr: "set"}}, ast.Param{Name: "right", Type: ast.TypeRef{Expr: "set"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("dict_has", builtinDictHas, "bool", "Return true when a dict contains the given key.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}, ast.Param{Name: "key"}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "dict_get",
+		call: builtinDictGet,
+		tool: &ToolSpec{
+			Name:       "dict_get",
+			ReturnType: ast.TypeRef{Expr: "any"},
+			Body:       "Return dict[key] when the key exists, otherwise return the provided default value.",
+			Params: []ast.Param{
+				{Name: "dict", Type: ast.TypeRef{Expr: "dict"}},
+				{Name: "key"},
+				{Name: "default", DefaultText: "none"},
+			},
+		},
+		defaults: map[string]any{
+			"default": nil,
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
+	registerBuiltin(interpreter, promptToolBuiltin("dict_set", builtinDictSet, "dict", "Return a new dict with one key assigned to the given value.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}, ast.Param{Name: "key"}, ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("dict_merge", builtinDictMerge, "dict", "Return a new dict containing all keys from left and right, with right winning on conflicts.", ast.Param{Name: "left", Type: ast.TypeRef{Expr: "dict"}}, ast.Param{Name: "right", Type: ast.TypeRef{Expr: "dict"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "sorted",
+		call: builtinSorted,
+		tool: &ToolSpec{
+			Name:       "sorted",
+			ReturnType: ast.TypeRef{Expr: "list"},
+			Body:       "Return a new sorted list. Mixed types are sorted deterministically by type and value.",
+			Params: []ast.Param{
+				{Name: "values", Type: ast.TypeRef{Expr: "list"}},
+				{Name: "descending", Type: ast.TypeRef{Expr: "bool"}, DefaultText: "false"},
+			},
+		},
+		defaults: map[string]any{
+			"descending": false,
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
+	registerBuiltin(interpreter, promptToolBuiltin("unique", builtinUnique, "list", "Return a new list with duplicate values removed while preserving the first occurrence of each value.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("sum", builtinSum, "any", "Return the numeric sum of a list of ints or floats.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("min", builtinMin, "any", "Return the smallest value in a non-empty list.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("max", builtinMax, "any", "Return the largest value in a non-empty list.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
 }
 
 func builtinJSONParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
@@ -167,4 +213,229 @@ func builtinSetDifference(_ context.Context, _ *Interpreter, args []any) (any, e
 		return nil, fmt.Errorf("set_difference expects right to be a set")
 	}
 	return left.Difference(right), nil
+}
+
+func builtinDictHas(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dict_has", args, 2); err != nil {
+		return nil, err
+	}
+	dict, ok := asMap(args[0])
+	if !ok {
+		return nil, fmt.Errorf("dict_has expects a dict")
+	}
+	_, exists := dict[stringify(args[1])]
+	return exists, nil
+}
+
+func builtinDictGet(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dict_get", args, 3); err != nil {
+		return nil, err
+	}
+	dict, ok := asMap(args[0])
+	if !ok {
+		return nil, fmt.Errorf("dict_get expects a dict")
+	}
+	if value, exists := dict[stringify(args[1])]; exists {
+		return value, nil
+	}
+	return args[2], nil
+}
+
+func builtinDictSet(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dict_set", args, 3); err != nil {
+		return nil, err
+	}
+	dict, ok := asMap(args[0])
+	if !ok {
+		return nil, fmt.Errorf("dict_set expects a dict")
+	}
+	result := cloneValue(dict).(map[string]any)
+	result[stringify(args[1])] = args[2]
+	return result, nil
+}
+
+func builtinDictMerge(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dict_merge", args, 2); err != nil {
+		return nil, err
+	}
+	left, ok := asMap(args[0])
+	if !ok {
+		return nil, fmt.Errorf("dict_merge expects left to be a dict")
+	}
+	right, ok := asMap(args[1])
+	if !ok {
+		return nil, fmt.Errorf("dict_merge expects right to be a dict")
+	}
+	result := cloneValue(left).(map[string]any)
+	for key, value := range right {
+		result[key] = cloneValue(value)
+	}
+	return result, nil
+}
+
+func builtinSorted(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("sorted", args, 2); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("sorted expects a list")
+	}
+	descending, err := coerceBool(args[1])
+	if err != nil {
+		return nil, fmt.Errorf("sorted descending: %w", err)
+	}
+	result := make([]any, len(values))
+	copy(result, values)
+	sort.Slice(result, func(left, right int) bool {
+		comparison := compareBuiltinValues(result[left], result[right])
+		if descending {
+			return comparison > 0
+		}
+		return comparison < 0
+	})
+	return result, nil
+}
+
+func builtinUnique(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("unique", args, 1); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("unique expects a list")
+	}
+	result := make([]any, 0, len(values))
+	for _, candidate := range values {
+		seen := false
+		for _, existing := range result {
+			if reflect.DeepEqual(existing, candidate) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			result = append(result, candidate)
+		}
+	}
+	return result, nil
+}
+
+func builtinSum(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("sum", args, 1); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("sum expects a list")
+	}
+	if len(values) == 0 {
+		return int64(0), nil
+	}
+
+	total := 0.0
+	allInts := true
+	for _, value := range values {
+		number, ok := asFloat(value)
+		if !ok {
+			return nil, fmt.Errorf("sum expects only numeric values")
+		}
+		if _, isInt := asInt(value); !isInt {
+			allInts = false
+		}
+		total += number
+	}
+	if allInts {
+		return int64(total), nil
+	}
+	return total, nil
+}
+
+func builtinMin(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	return builtinExtrema("min", args, func(comparison int) bool { return comparison < 0 })
+}
+
+func builtinMax(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	return builtinExtrema("max", args, func(comparison int) bool { return comparison > 0 })
+}
+
+func builtinExtrema(name string, args []any, choose func(int) bool) (any, error) {
+	if err := expectArgCount(name, args, 1); err != nil {
+		return nil, err
+	}
+	values, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("%s expects a list", name)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%s expects a non-empty list", name)
+	}
+
+	best := values[0]
+	for _, candidate := range values[1:] {
+		if choose(compareBuiltinValues(candidate, best)) {
+			best = candidate
+		}
+	}
+	return best, nil
+}
+
+func compareBuiltinValues(left, right any) int {
+	if leftNumber, leftOK := asFloat(left); leftOK {
+		if rightNumber, rightOK := asFloat(right); rightOK {
+			switch {
+			case leftNumber < rightNumber:
+				return -1
+			case leftNumber > rightNumber:
+				return 1
+			default:
+				return 0
+			}
+		}
+	}
+
+	switch leftValue := left.(type) {
+	case string:
+		if rightValue, ok := right.(string); ok {
+			switch {
+			case leftValue < rightValue:
+				return -1
+			case leftValue > rightValue:
+				return 1
+			default:
+				return 0
+			}
+		}
+	case bool:
+		if rightValue, ok := right.(bool); ok {
+			switch {
+			case !leftValue && rightValue:
+				return -1
+			case leftValue && !rightValue:
+				return 1
+			default:
+				return 0
+			}
+		}
+	}
+
+	leftType := typeName(left)
+	rightType := typeName(right)
+	switch {
+	case leftType < rightType:
+		return -1
+	case leftType > rightType:
+		return 1
+	}
+
+	leftText := jsonString(normalizeJSONValue(left))
+	rightText := jsonString(normalizeJSONValue(right))
+	switch {
+	case leftText < rightText:
+		return -1
+	case leftText > rightText:
+		return 1
+	default:
+		return 0
+	}
 }

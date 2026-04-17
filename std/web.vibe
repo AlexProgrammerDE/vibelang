@@ -7,7 +7,25 @@ def render_page(title: string, brief: string, accent: string = "teal", theme: st
     Use semantic HTML, responsive layout, and a ${theme} background with a restrained ${accent} accent color.
     Keep the markup production-shaped, readable, and dependency-free.
 
+def render_component(name: string, props: dict, brief: string, accent: string = "teal", theme: string = default_theme) -> string:
+    Return one HTML fragment for a UI component named ${name}.
+    The component props are ${json_pretty(props)}.
+    The product brief is ${brief}.
+    Use semantic HTML, clear labels, sensible ARIA attributes, and a ${theme} palette with restrained ${accent} accents.
+    Do not return a full HTML document.
+
+def render_app_shell(title: string, route: string, state: dict, brief: string, accent: string = "teal", theme: string = default_theme) -> string:
+    Return a complete HTML5 document for a vibecoded web app route.
+    The app title is ${title}.
+    The route is ${route}.
+    The initial state JSON is ${json_pretty(state)}.
+    The product brief is ${brief}.
+    Build one root app shell with semantic sections, progressive enhancement, and a tiny inline script for light interactions without external dependencies.
+
 def respond_html(title: string, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict:
     Call render_page to produce the HTML body.
     Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.
 
+def respond_component(name: string, props: dict, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict:
+    Call render_component with ${name}, ${props}, ${brief}, ${accent}, and ${theme}.
+    Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html fragment.

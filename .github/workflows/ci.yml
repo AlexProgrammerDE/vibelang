@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -45,6 +49,7 @@ jobs:
         run: |
           go run ./cmd/vibelang --check examples/hello.vibe
           go run ./cmd/vibelang --check examples/keyword_args.vibe
+          go run ./cmd/vibelang --check examples/match.vibe
           go run ./cmd/vibelang --check examples/macros.vibe
           go run ./cmd/vibelang --check examples/observability.vibe
           go run ./cmd/vibelang --check examples/tool_chain.vibe
