@@ -226,6 +226,15 @@ print(parsed["hostname"])
 print(rebuilt)
 ```
 
+Typed structured outputs make AI functions more reliable because the runtime now turns the declared return type into a stricter JSON schema before it calls the model:
+
+```python
+def describe_weather(city: string) -> dict{city: string, summary: string, alerts: optional[list[string]], stats: dict{temp_c: int, wind_kph: int}, focus: tuple[string, int]}:
+    Return a compact weather object for ${city}.
+
+print(json_pretty(describe_weather("Berlin")))
+```
+
 ## 4. Run It
 
 With Ollama:
@@ -283,5 +292,6 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
+- Run [examples/structured_outputs.vibe](../examples/structured_outputs.vibe) to see typed AI return values, optional fields, nested records, and tuples.
 - Run [examples/directives.vibe](../examples/directives.vibe) to see per-function AI directives.
 - Run [examples/error_handling.vibe](../examples/error_handling.vibe) to see `try` / `except` / `finally` and text helpers.

@@ -1,0 +1,10 @@
+def describe_weather(city: string) -> dict{city: string, summary: string, alerts: optional[list[string]], stats: dict{temp_c: int, wind_kph: int}, focus: tuple[string, int]}:
+    @temperature 0
+    Return a compact structured weather object for ${city}.
+    summary should be one sentence.
+    alerts should be omitted when there are no alerts.
+    stats must include integer temp_c and integer wind_kph.
+    focus must be a two item tuple where the first item is a short label and the second item is an integer score from 0 to 100.
+
+weather = describe_weather("Berlin")
+print(json_pretty(weather))

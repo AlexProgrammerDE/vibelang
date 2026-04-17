@@ -36,6 +36,22 @@ func (c *scriptedClient) Generate(_ context.Context, request model.Request) (mod
 	return model.Response{Text: response}, nil
 }
 
+func nestedMap(root map[string]any, keys ...string) (map[string]any, bool) {
+	current := root
+	for _, key := range keys {
+		value, ok := current[key]
+		if !ok {
+			return nil, false
+		}
+		next, ok := value.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current = next
+	}
+	return current, true
+}
+
 func TestInterpreterExecutesControlFlow(t *testing.T) {
 	source := `numbers = range(1, 5)
 total = 0
@@ -128,6 +144,157 @@ print(result)
 	}
 	if !strings.Contains(client.prompts[0], "add_one(value: int) -> int") {
 		t.Fatalf("prompt did not include function signature:\n%s", client.prompts[0])
+	}
+}
+
+func TestInterpreterRejectsInvalidStructuredReturnTypes(t *testing.T) {
+	source := `def describe_weather(city: string) -> dict{city: string, temp_c: int, alerts: list[string]}:
+    Return a weather summary object for ${city}.
+
+print(json(describe_weather("Berlin")))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":{"city":123,"temp_c":"warm","alerts":"none"}}`,
+		},
+	}
+
+	interpreter := NewInterpreter(Config{Model: client})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if !strings.Contains(err.Error(), "alerts") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterpreterSendsStructuredSchemaForTypedReturns(t *testing.T) {
+	source := `def describe_weather(city: string) -> dict{city: string, temp_c: int, alerts: list[string]}:
+    Return a weather summary object for ${city}.
+
+print(json(describe_weather("Berlin")))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":{"city":"Berlin","temp_c":19,"alerts":["clear"]}}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(client.requests) != 1 {
+		t.Fatalf("expected 1 model request, got %d", len(client.requests))
+	}
+
+	variants, ok := client.requests[0].JSONSchema["oneOf"].([]any)
+	if !ok || len(variants) == 0 {
+		t.Fatalf("request schema did not expose oneOf variants: %#v", client.requests[0].JSONSchema)
+	}
+	returnVariant, ok := variants[0].(map[string]any)
+	if !ok {
+		t.Fatalf("request schema return variant had unexpected type: %#v", variants[0])
+	}
+
+	valueSchema, ok := nestedMap(returnVariant, "properties", "value")
+	if !ok {
+		t.Fatalf("request schema did not contain return properties.value: %#v", client.requests[0].JSONSchema)
+	}
+	properties, ok := valueSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("value schema did not expose typed object properties: %#v", valueSchema)
+	}
+	if _, ok := properties["city"]; !ok {
+		t.Fatalf("value schema did not describe city: %#v", valueSchema)
+	}
+	if _, ok := properties["temp_c"]; !ok {
+		t.Fatalf("value schema did not describe temp_c: %#v", valueSchema)
+	}
+	if _, ok := properties["alerts"]; !ok {
+		t.Fatalf("value schema did not describe alerts: %#v", valueSchema)
+	}
+}
+
+func TestInterpreterSupportsOptionalStructuredFields(t *testing.T) {
+	source := `def describe_weather(city: string) -> dict{city: string, alerts: optional[list[string]]}:
+    Return a partial weather object for ${city}.
+
+print(json(describe_weather("Berlin")))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":{"city":"Berlin"}}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "{\"alerts\":null,\"city\":\"Berlin\"}\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "{\"alerts\":null,\"city\":\"Berlin\"}\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsTupleReturnTypes(t *testing.T) {
+	source := `def build_pair() -> tuple[string, int]:
+    Return a two item tuple where the first item is "latency" and the second item is 42.
+
+print(json(build_pair()))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":["latency","42"]}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "[\"latency\",42]\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "[\"latency\",42]\n", stdout.String())
 	}
 }
 

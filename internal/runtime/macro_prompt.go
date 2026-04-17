@@ -16,38 +16,61 @@ func macroSystemPrompt() string {
 	}, "\n")
 }
 
-func macroActionSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action": map[string]any{
-				"type": "string",
-				"enum": []string{"expand", "call"},
-			},
-			"source": map[string]any{
-				"type": "string",
-			},
-			"call": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name": map[string]any{
-						"type": "string",
-					},
-					"arguments": map[string]any{
-						"type":                 "object",
-						"additionalProperties": true,
-					},
+func buildMacroActionSchema(tools []ToolSpec) map[string]any {
+	variants := []any{
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":  "string",
+					"const": "expand",
 				},
-				"required":             []string{"name", "arguments"},
-				"additionalProperties": false,
+				"source": map[string]any{
+					"type": "string",
+				},
 			},
+			"required":             []string{"action", "source"},
+			"additionalProperties": false,
 		},
-		"required":             []string{"action"},
-		"additionalProperties": true,
 	}
+
+	if len(tools) > 0 {
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			names = append(names, tool.Name)
+		}
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":  "string",
+					"const": "call",
+				},
+				"call": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name": map[string]any{
+							"type": "string",
+							"enum": names,
+						},
+						"arguments": map[string]any{
+							"type":                 "object",
+							"additionalProperties": true,
+						},
+					},
+					"required":             []string{"name", "arguments"},
+					"additionalProperties": false,
+				},
+			},
+			"required":             []string{"action", "call"},
+			"additionalProperties": false,
+		})
+	}
+
+	return map[string]any{"oneOf": variants}
 }
 
-func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent) (string, error) {
+func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent, schema map[string]any) (string, error) {
 	inputJSON, err := json.MarshalIndent(args, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal macro inputs: %w", err)
@@ -95,7 +118,7 @@ func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, 
 	}
 
 	builder.WriteString("Macro schema:\n")
-	builder.WriteString(indentLines(jsonString(macroActionSchema()), "  "))
+	builder.WriteString(indentLines(jsonString(schema), "  "))
 	builder.WriteString("\n\n")
 	builder.WriteString("When finished, return action=expand and put exactly one valid vibelang expression in source.\n")
 	builder.WriteString("Do not wrap the expression in markdown or explanations.\n")

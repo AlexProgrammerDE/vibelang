@@ -40,36 +40,64 @@ func aiSystemPrompt() string {
 	}, "\n")
 }
 
-func aiActionSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action": map[string]any{
-				"type": "string",
-				"enum": []string{"return", "call"},
-			},
-			"value": map[string]any{},
-			"call": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name": map[string]any{
-						"type": "string",
-					},
-					"arguments": map[string]any{
-						"type":                 "object",
-						"additionalProperties": true,
-					},
-				},
-				"required":             []string{"name", "arguments"},
-				"additionalProperties": false,
-			},
-		},
-		"required":             []string{"action"},
-		"additionalProperties": true,
+func buildAIActionSchema(returnType string, tools []ToolSpec) (map[string]any, error) {
+	returnSpec, err := parseTypeSpec(returnType)
+	if err != nil {
+		return nil, err
 	}
+
+	variants := []any{
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":  "string",
+					"const": "return",
+				},
+				"value": returnSpec.jsonSchema(),
+			},
+			"required":             []string{"action", "value"},
+			"additionalProperties": false,
+		},
+	}
+
+	if len(tools) > 0 {
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			names = append(names, tool.Name)
+		}
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":  "string",
+					"const": "call",
+				},
+				"call": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name": map[string]any{
+							"type": "string",
+							"enum": names,
+						},
+						"arguments": map[string]any{
+							"type":                 "object",
+							"additionalProperties": true,
+						},
+					},
+					"required":             []string{"name", "arguments"},
+					"additionalProperties": false,
+				},
+			},
+			"required":             []string{"action", "call"},
+			"additionalProperties": false,
+		})
+	}
+
+	return map[string]any{"oneOf": variants}, nil
 }
 
-func buildPrompt(function *AIFunction, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent) (string, error) {
+func buildPrompt(function *AIFunction, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent, chain []aiCallFrame, schema map[string]any) (string, error) {
 	inputJSON, err := json.MarshalIndent(args, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal function inputs: %w", err)
@@ -88,6 +116,14 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 	builder.WriteString("Inputs:\n")
 	builder.Write(inputJSON)
 	builder.WriteString("\n\n")
+
+	if len(chain) > 0 {
+		builder.WriteString("Active AI call stack:\n")
+		for _, frame := range chain {
+			builder.WriteString(fmt.Sprintf("- %s\n", frame.Signature))
+		}
+		builder.WriteString("\n")
+	}
 
 	if len(tools) == 0 {
 		builder.WriteString("Available helper functions: none\n\n")
@@ -117,11 +153,12 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 	}
 
 	builder.WriteString("Execution schema:\n")
-	builder.WriteString(indentLines(jsonString(aiActionSchema()), "  "))
+	builder.WriteString(indentLines(jsonString(schema), "  "))
 	builder.WriteString("\n\n")
 
 	builder.WriteString("Return JSON only. Keep helper arguments valid for the declared parameter names.\n")
 	builder.WriteString(fmt.Sprintf("The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
+	builder.WriteString("Never request a helper call that matches any active AI call stack entry.\n")
 	builder.WriteString("Never retry a helper call that already appears as rejected or failed in the tool history.\n")
 
 	return builder.String(), nil

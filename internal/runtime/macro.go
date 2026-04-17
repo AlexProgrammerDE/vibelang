@@ -96,6 +96,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs("", macro.directives)
+	actionSchema := buildMacroActionSchema(tools)
 
 	maxSteps := i.maxAISteps
 	if macro.directives.MaxSteps != nil {
@@ -103,7 +104,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 	}
 
 	for step := 0; step < maxSteps; step++ {
-		prompt, err := buildMacroPrompt(macro, instructions, scope, tools, history)
+		prompt, err := buildMacroPrompt(macro, instructions, scope, tools, history, actionSchema)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +112,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 		response, err := i.model.Generate(ctx, model.Request{
 			System:      macroSystemPrompt(),
 			Prompt:      prompt,
-			JSONSchema:  macroActionSchema(),
+			JSONSchema:  actionSchema,
 			Temperature: macro.directives.Temperature,
 			MaxTokens:   macro.directives.MaxTokens,
 		})

@@ -29,6 +29,8 @@ Notes:
 - AI functions capture surrounding non-function values at definition time by value, so later list and dict mutations do not silently change prompt bodies.
 - Parameter and return types are optional. Omitted types default to `any`.
 - Parameters may declare default values. As in Python, required parameters must come before defaulted parameters.
+- Structured record return types are supported with `dict{field: type, other: optional[list[string]]}`.
+- Fixed-length tuples are supported with `tuple[T1, T2, ...]`.
 
 ### Macro Definition
 
@@ -230,8 +232,17 @@ Built-in type names:
 - `set[T]`
 - `dict[T]`
 - `dict[K, V]`
+- `optional[T]`
+- `oneof[T1, T2, ...]`
+- `tuple[T1, T2, ...]`
+- `dict{field: T, other: U}`
 
-The runtime coerces model outputs to the declared return type when possible.
+Notes:
+
+- `dict{field: T}` defines a closed record shape. Unknown fields are rejected.
+- Record fields declared as `optional[T]` may be omitted by the model and are normalized to `none`.
+- `tuple[T1, T2, ...]` expects a fixed-length list-like value and coerces each slot independently.
+- The runtime coerces model outputs to the declared return type when possible and derives a tighter JSON schema from the declared return type before calling the model.
 
 ## Builtins
 
@@ -353,7 +364,7 @@ The runtime coerces model outputs to the declared return type when possible.
 
 Bundled modules:
 
-- `std/web`: AI helpers for HTML rendering, component fragments, app shells, and HTML response construction
+- `std/web`: AI helpers for HTML rendering, component fragments, app shells, and typed HTML or JSON response construction
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
 
@@ -378,6 +389,7 @@ Behavior:
 - `@cache true` memoizes successful AI function and macro results for identical inputs and directives.
 - Self-recursive helper calls are rejected and fed back into the next model step through tool history.
 - Repeating the same rejected helper call now fails fast instead of burning more model steps.
+- Declared return types feed into the structured response schema, so `dict{...}`, `optional[...]`, and `tuple[...]` produce stricter model output contracts.
 - Helper calls are limited by `--max-steps`.
 - Nested AI execution is limited by `--max-depth`.
 

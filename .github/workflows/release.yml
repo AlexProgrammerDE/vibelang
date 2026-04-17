@@ -49,28 +49,9 @@ jobs:
 
       - name: Parse example programs
         run: |
-          go run ./cmd/vibelang --check std/web.vibe
-          go run ./cmd/vibelang --check std/telemetry.vibe
-          go run ./cmd/vibelang --check std/ai.vibe
-          go run ./cmd/vibelang --check examples/hello.vibe
-          go run ./cmd/vibelang --check examples/cache.vibe
-          go run ./cmd/vibelang --check examples/keyword_args.vibe
-          go run ./cmd/vibelang --check examples/match.vibe
-          go run ./cmd/vibelang --check examples/macros.vibe
-          go run ./cmd/vibelang --check examples/observability.vibe
-          go run ./cmd/vibelang --check examples/tool_chain.vibe
-          go run ./cmd/vibelang --check examples/pi_file.vibe
-          go run ./cmd/vibelang --check examples/stdlib.vibe
-          go run ./cmd/vibelang --check examples/defer.vibe
-          go run ./cmd/vibelang --check examples/url_tools.vibe
-          go run ./cmd/vibelang --check examples/modules/main.vibe
-          go run ./cmd/vibelang --check examples/ops.vibe
-          go run ./cmd/vibelang --check examples/concurrency.vibe
-          go run ./cmd/vibelang --check examples/comprehensions.vibe
-          go run ./cmd/vibelang --check examples/select.vibe
-          go run ./cmd/vibelang --check examples/http_server.vibe
-          go run ./cmd/vibelang --check examples/directives.vibe
-          go run ./cmd/vibelang --check examples/error_handling.vibe
+          find std examples -name '*.vibe' -print | sort | while read -r file; do
+            go run ./cmd/vibelang --check "$file"
+          done
 
       - name: Build and publish release artifacts
         uses: goreleaser/goreleaser-action@v7

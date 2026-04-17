@@ -31,14 +31,27 @@ def render_app_shell(title: string, route: string, state: dict, brief: string, a
     The product brief is ${brief}.
     Build one root app shell with semantic sections, progressive enhancement, and a tiny inline script for light interactions without external dependencies.
 
-def respond_html(title: string, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict:
+def respond_html(title: string, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict{status: int, headers: dict[string, string], html: string}:
     @temperature 0
     @tools render_page
     Call render_page to produce the HTML body.
     Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.
 
-def respond_component(name: string, props: dict, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict:
+def respond_component(name: string, props: dict, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict{status: int, headers: dict[string, string], html: string}:
     @temperature 0
     @tools render_component
     Call render_component with ${name}, ${props}, ${brief}, ${accent}, and ${theme}.
     Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html fragment.
+
+def respond_app_shell(title: string, route: string, state: dict, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict{status: int, headers: dict[string, string], html: string}:
+    @temperature 0
+    @tools render_app_shell
+    Call render_app_shell with ${title}, ${route}, ${state}, ${brief}, ${accent}, and ${theme}.
+    Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.
+
+def respond_json(payload: any, status: int = 200) -> dict{status: int, headers: dict[string, string], json: any}:
+    @temperature 0
+    Return exactly one JSON response object with:
+    - status set to ${status}
+    - headers set to {"content-type": "application/json; charset=utf-8"}
+    - json set to ${payload}

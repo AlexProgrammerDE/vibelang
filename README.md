@@ -14,6 +14,7 @@
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
+- Supports structured AI return types such as `dict{city: string, alerts: optional[list[string]]}` and `tuple[string, int]`, and turns them into tighter JSON schemas for model backends.
 - Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
 - Supports block-scoped `defer` expressions for LIFO cleanup on normal exit, `break`, `continue`, and errors.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
@@ -174,6 +175,15 @@ numbers = @even_numbers(5)
 print(numbers)
 ```
 
+Structured outputs can stay Python-shaped while still giving the model a precise target:
+
+```python
+def describe_weather(city: string) -> dict{city: string, summary: string, alerts: optional[list[string]], stats: dict{temp_c: int, wind_kph: int}, focus: tuple[string, int]}:
+    Return a compact weather object for ${city}.
+
+print(json_pretty(describe_weather("Berlin")))
+```
+
 Modules are ordinary `.vibe` files:
 
 ```python
@@ -314,7 +324,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 
 Bundled `std` modules currently include:
 
-- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, and HTML HTTP responses
+- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, typed HTML responses, and JSON response construction via `respond_app_shell` and `respond_json`
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 
 ## Documentation

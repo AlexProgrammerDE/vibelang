@@ -889,13 +889,17 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 
 	history := make([]ToolEvent, 0)
 	tools := i.toolSpecs(excludeTool, directives)
+	actionSchema, err := buildAIActionSchema(function.Def.ReturnType.String(), tools)
+	if err != nil {
+		return nil, err
+	}
 	maxSteps := i.maxAISteps
 	if directives.MaxSteps != nil {
 		maxSteps = *directives.MaxSteps
 	}
 
 	for step := 0; step < maxSteps; step++ {
-		prompt, err := buildPrompt(function, instructions, args, tools, history)
+		prompt, err := buildPrompt(function, instructions, args, tools, history, chain, actionSchema)
 		if err != nil {
 			return nil, err
 		}
@@ -903,7 +907,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 		response, err := i.model.Generate(ctx, model.Request{
 			System:      aiSystemPrompt(),
 			Prompt:      prompt,
-			JSONSchema:  aiActionSchema(),
+			JSONSchema:  actionSchema,
 			Temperature: directives.Temperature,
 			MaxTokens:   directives.MaxTokens,
 		})

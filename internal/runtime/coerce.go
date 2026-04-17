@@ -8,115 +8,11 @@ import (
 )
 
 func Coerce(typeExpr string, value any) (any, error) {
-	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(typeExpr), " ", ""))
-	if normalized == "" || normalized == "any" {
-		return value, nil
+	spec, err := parseTypeSpec(typeExpr)
+	if err != nil {
+		return nil, err
 	}
-
-	base, args, hasGeneric := parseGeneric(normalized)
-	if !hasGeneric {
-		switch normalized {
-		case "string":
-			return stringify(value), nil
-		case "int":
-			return coerceInt(value)
-		case "float":
-			return coerceFloat(value)
-		case "bool":
-			return coerceBool(value)
-		case "none":
-			if value != nil {
-				return nil, fmt.Errorf("expected none, got %s", typeName(value))
-			}
-			return nil, nil
-		case "list":
-			if list, ok := asList(value); ok {
-				return list, nil
-			}
-			return nil, fmt.Errorf("expected list, got %s", typeName(value))
-		case "set":
-			if set, ok := asSet(value); ok {
-				return set, nil
-			}
-			if list, ok := asList(value); ok {
-				return NewSetValue(list), nil
-			}
-			return nil, fmt.Errorf("expected set, got %s", typeName(value))
-		case "dict":
-			if dict, ok := asMap(value); ok {
-				return dict, nil
-			}
-			return nil, fmt.Errorf("expected dict, got %s", typeName(value))
-		default:
-			return value, nil
-		}
-	}
-
-	switch base {
-	case "list":
-		list, ok := asList(value)
-		if !ok {
-			return nil, fmt.Errorf("expected list, got %s", typeName(value))
-		}
-		result := make([]any, 0, len(list))
-		itemType := "any"
-		if len(args) > 0 {
-			itemType = args[0]
-		}
-		for _, item := range list {
-			coerced, err := Coerce(itemType, item)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, coerced)
-		}
-		return result, nil
-	case "dict":
-		dict, ok := asMap(value)
-		if !ok {
-			return nil, fmt.Errorf("expected dict, got %s", typeName(value))
-		}
-		valueType := "any"
-		if len(args) == 2 {
-			valueType = args[1]
-		} else if len(args) == 1 {
-			valueType = args[0]
-		}
-		result := make(map[string]any, len(dict))
-		for key, item := range dict {
-			coerced, err := Coerce(valueType, item)
-			if err != nil {
-				return nil, err
-			}
-			result[key] = coerced
-		}
-		return result, nil
-	case "set":
-		set, ok := asSet(value)
-		if !ok {
-			if list, listOK := asList(value); listOK {
-				set = NewSetValue(list)
-			} else {
-				return nil, fmt.Errorf("expected set, got %s", typeName(value))
-			}
-		}
-		itemType := "any"
-		if len(args) > 0 {
-			itemType = args[0]
-		}
-		values := set.Values()
-		coerced := make([]any, 0, len(values))
-		for _, item := range values {
-			value, err := Coerce(itemType, item)
-			if err != nil {
-				return nil, err
-			}
-			coerced = append(coerced, value)
-		}
-		return NewSetValue(coerced), nil
-	default:
-		return value, nil
-	}
+	return spec.coerceValue(value)
 }
 
 func coerceInt(value any) (int64, error) {
@@ -182,38 +78,4 @@ func coerceBool(value any) (bool, error) {
 	default:
 		return false, fmt.Errorf("cannot coerce %s to bool", typeName(value))
 	}
-}
-
-func parseGeneric(typeExpr string) (string, []string, bool) {
-	open := strings.IndexRune(typeExpr, '[')
-	close := strings.LastIndex(typeExpr, "]")
-	if open < 0 || close < open {
-		return "", nil, false
-	}
-
-	base := typeExpr[:open]
-	body := typeExpr[open+1 : close]
-	parts := splitTopLevel(body)
-	return base, parts, true
-}
-
-func splitTopLevel(text string) []string {
-	parts := make([]string, 0)
-	start := 0
-	depth := 0
-	for i, ch := range text {
-		switch ch {
-		case '[':
-			depth++
-		case ']':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, strings.TrimSpace(text[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	parts = append(parts, strings.TrimSpace(text[start:]))
-	return parts
 }
