@@ -12,6 +12,8 @@ import (
 	"vibelang/internal/runtime"
 )
 
+var version = "dev"
+
 func main() {
 	provider := flag.String("provider", envOr("VIBE_PROVIDER", "ollama"), "local model provider: ollama or llamacpp")
 	endpoint := flag.String("endpoint", envOr("VIBE_ENDPOINT", ""), "provider endpoint URL")
@@ -21,12 +23,19 @@ func main() {
 	maxSteps := flag.Int("max-steps", envInt("VIBE_MAX_STEPS", 8), "maximum helper-call steps per AI function")
 	maxDepth := flag.Int("max-depth", envInt("VIBE_MAX_DEPTH", 8), "maximum nested AI function call depth")
 	timeout := flag.Duration("timeout", envDuration("VIBE_TIMEOUT", 2*time.Minute), "HTTP timeout for model requests")
+	checkOnly := flag.Bool("check", envBool("VIBE_CHECK", false), "parse the file and exit without running the model")
 	trace := flag.Bool("trace", envBool("VIBE_TRACE", false), "write AI execution trace to stderr")
+	showVersion := flag.Bool("version", false, "print the interpreter version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <file.vibe>\n\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	if flag.NArg() != 1 {
 		flag.Usage()
@@ -42,6 +51,9 @@ func main() {
 	program, err := parser.ParseSource(string(source))
 	if err != nil {
 		fatalf("parse %s: %v", sourcePath, err)
+	}
+	if *checkOnly {
+		return
 	}
 
 	client, err := model.NewClient(model.Config{
@@ -69,7 +81,7 @@ func main() {
 		MaxCallDepth: *maxDepth,
 	})
 
-	if err := interpreter.Execute(context.Background(), program); err != nil {
+	if err := interpreter.ExecuteFile(context.Background(), program, sourcePath); err != nil {
 		fatalf("run %s: %v", sourcePath, err)
 	}
 }

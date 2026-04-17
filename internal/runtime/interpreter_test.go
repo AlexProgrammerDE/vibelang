@@ -5,6 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -497,6 +501,199 @@ print(read_file(text_path))
 		"world",
 		"",
 	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterImportsModulesFromFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	modulePath := filepath.Join(tempDir, "shared.vibe")
+	moduleSource := `prefix = "Dr."
+def format_name(name: string) -> string:
+    Return exactly: ${prefix} ${name}
+`
+	if err := os.WriteFile(modulePath, []byte(moduleSource), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	source := `from "./shared.vibe" import prefix, format_name
+import "./shared.vibe" as shared
+print(prefix)
+print(format_name("Ada"))
+print(shared["prefix"])
+print(shared["format_name"]("Ada"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"Dr. Ada"}`,
+			`{"action":"return","value":"Dr. Ada"}`,
+		},
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd returned error: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Chdir returned error: %v", err)
+	}
+	defer os.Chdir(originalWD)
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "Dr.\nDr. Ada\nDr.\nDr. Ada\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterProvidesNetworkAndSystemStdlib(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Test") != "vibelang" {
+			http.Error(writer, "missing header", http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(writer, "hello %s", request.URL.Query().Get("name"))
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	source := fmt.Sprintf(`workspace = join_path([cwd(), "network"])
+make_dir(workspace)
+src = join_path([workspace, "source.txt"])
+copy = join_path([workspace, "copy.txt"])
+moved = join_path([workspace, "moved.txt"])
+write_file(src, "alpha")
+copy_file(src, copy)
+move_file(copy, moved)
+matches = glob(join_path([workspace, "*.txt"]))
+response = http_request(%q, headers={"X-Test": "vibelang"})
+process = run_process("bash", args=["-lc", "printf 'hello %%s' \"$TARGET\""], env={"TARGET": "vibe"}, dir=workspace)
+print(response["status"])
+print(response["body"])
+print(contains(matches, src))
+print(contains(matches, moved))
+print(read_file(moved))
+print(sqrt(81))
+print(pow(2, 5))
+print(abs(-4))
+print(floor(2.8))
+print(ceil(2.2))
+print(type(now()))
+print(type(unix_time()))
+print(process["success"])
+print(process["stdout"])
+`, server.URL+"?name=world")
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd returned error: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Chdir returned error: %v", err)
+	}
+	defer os.Chdir(originalWD)
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"200",
+		"hello world",
+		"true",
+		"true",
+		"alpha",
+		"9",
+		"32",
+		"4",
+		"2",
+		"3",
+		"string",
+		"int",
+		"true",
+		"hello vibe",
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterProvidesSocketStdlib(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen returned error: %v", err)
+	}
+	defer listener.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer conn.Close()
+
+		buffer := make([]byte, 16)
+		n, err := conn.Read(buffer)
+		if err != nil {
+			done <- err
+			return
+		}
+		if string(buffer[:n]) != "ping" {
+			done <- fmt.Errorf("unexpected request %q", string(buffer[:n]))
+			return
+		}
+		_, err = io.WriteString(conn, "pong")
+		done <- err
+	}()
+
+	source := fmt.Sprintf(`handle = socket_open(%q)
+socket_write(handle, "ping")
+print(socket_read(handle))
+print(socket_close(handle))
+`, listener.Addr().String())
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+
+	want := "pong\ntrue\n"
 	if stdout.String() != want {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}

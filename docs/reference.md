@@ -4,6 +4,7 @@
 
 - A `.vibe` file is parsed into an AST and executed top to bottom.
 - `def` statements register AI-backed functions.
+- `import` statements load other `.vibe` files into isolated module scopes.
 - Inline `* prompt` expressions execute AI work directly at the statement site.
 - Regular statements are executed by the interpreter.
 - AI function calls are delegated to the configured local model client.
@@ -23,8 +24,24 @@ Notes:
 - Function bodies are raw text, not statements.
 - `${...}` placeholders are evaluated as normal vibelang expressions before the prompt is sent to the model.
 - Prompt interpolation can use arguments, current values, indexing, arithmetic, and prompt-safe builtins such as `len`, `json`, `basename`, or `join_path`.
+- AI functions capture surrounding non-function values at definition time, so module constants and top-level configuration are available inside prompt bodies.
 - Parameter and return types are optional. Omitted types default to `any`.
 - Parameters may declare default values. As in Python, required parameters must come before defaulted parameters.
+
+### Module Imports
+
+```python
+import "./shared.vibe" as shared
+from "./shared.vibe" import format_name, helper as alias_helper
+```
+
+Notes:
+
+- Import paths are string literals.
+- Relative paths resolve from the directory of the importing file.
+- `import` binds a module namespace as a `dict`.
+- `from ... import ...` binds exported names directly in the current scope.
+- Any top-level name that starts with `_` stays private to the module.
 
 ### Inline Prompt Expression
 
@@ -48,6 +65,7 @@ Notes:
 
 Supported statements:
 
+- module import: `import "path" as name`, `from "path" import item`
 - assignment: `name = expression`
 - index assignment: `items[0] = "updated"`
 - expression statement: `print(value)`
@@ -110,6 +128,7 @@ The runtime coerces model outputs to the declared return type when possible.
 - `values(dict)`: return dict values in sorted-key order
 - `json(value)`: JSON-encode a value
 - `cwd()`: return the current working directory
+- `glob(pattern)`: return sorted matches for a glob pattern
 - `file_exists(path)`: return whether a path exists
 - `read_file(path)`: read a UTF-8 text file
 - `join_path(parts)`: join path segments
@@ -128,10 +147,27 @@ The runtime coerces model outputs to the declared return type when possible.
 - `contains(container, value)`: containment check as a builtin helper
 - `read_json(path)`: read and decode JSON
 - `write_file(path, content)`: write a UTF-8 text file and return the path
+- `copy_file(source, destination)`: copy a file and return the destination path
+- `move_file(source, destination)`: move or rename a file and return the destination path
 - `delete_file(path)`: delete a file and return whether anything was removed
 - `make_dir(path)`: create a directory tree and return the path
 - `append_file(path, content)`: append text to a file and return the path
 - `write_json(path, value)`: write formatted JSON and return the path
+- `sqrt(value)`: square root
+- `pow(base, exponent)`: exponentiation helper
+- `abs(value)`: absolute value
+- `floor(value)`: floor as an integer
+- `ceil(value)`: ceiling as an integer
+- `now()`: current time in RFC3339 form
+- `unix_time()`: current Unix timestamp
+- `sleep(milliseconds)`: pause execution
+- `http_request(url, method="GET", body="", headers={}, timeout_ms=10000)`: perform an HTTP request
+- `run_process(command, args=[], dir="", input="", env={}, timeout_ms=30000)`: execute a local process
+- `socket_open(address, network="tcp", timeout_ms=5000)`: open a socket and return a handle
+- `socket_write(handle, data)`: write to an open socket
+- `socket_read(handle, max_bytes=4096, timeout_ms=1000)`: read from an open socket
+- `socket_close(handle)`: close an open socket
+- `pi`, `e`: math constants exposed as top-level values
 
 ## AI Function Protocol
 
@@ -169,7 +205,9 @@ Flags:
 - `--max-steps`: max helper-call steps per AI function
 - `--max-depth`: max nested AI call depth
 - `--timeout`: HTTP timeout
+- `--check`: parse only, do not execute the model
 - `--trace`: print runtime trace to stderr
+- `--version`: print the interpreter version
 
 Environment variable equivalents:
 
@@ -181,4 +219,5 @@ Environment variable equivalents:
 - `VIBE_MAX_STEPS`
 - `VIBE_MAX_DEPTH`
 - `VIBE_TIMEOUT`
+- `VIBE_CHECK`
 - `VIBE_TRACE`

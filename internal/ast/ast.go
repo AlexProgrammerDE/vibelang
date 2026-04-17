@@ -43,6 +43,29 @@ type FunctionDef struct {
 func (*FunctionDef) stmtNode()         {}
 func (s *FunctionDef) LineNumber() int { return s.Line }
 
+type ImportStmt struct {
+	Line  int
+	Path  string
+	Alias string
+}
+
+func (*ImportStmt) stmtNode()         {}
+func (s *ImportStmt) LineNumber() int { return s.Line }
+
+type ImportName struct {
+	Name  string
+	Alias string
+}
+
+type FromImportStmt struct {
+	Line  int
+	Path  string
+	Names []ImportName
+}
+
+func (*FromImportStmt) stmtNode()         {}
+func (s *FromImportStmt) LineNumber() int { return s.Line }
+
 type AssignStmt struct {
 	Line   int
 	Target Expr

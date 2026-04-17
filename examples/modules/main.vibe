@@ -1,0 +1,6 @@
+from "./shared.vibe" import prefix, format_name
+import "./shared.vibe" as shared
+
+print(prefix)
+print(format_name("Ada"))
+print(shared["headline"]("Grace"))

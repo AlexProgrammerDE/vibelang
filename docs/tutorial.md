@@ -9,6 +9,7 @@ By the end, you will:
 - start a local model server
 - build the interpreter
 - run a small `.vibe` program
+- import one `.vibe` module from another
 - inspect the AI execution trace
 
 ## 1. Start a Local Model
@@ -81,6 +82,26 @@ def explain_file(path: string, digits: string) -> string:
     Mention that ${digits} has ${len(digits)} characters.
 ```
 
+Modules work with ordinary files:
+
+```python
+# shared.vibe
+prefix = "Dr."
+
+def format_name(name: string) -> string:
+    Return exactly: ${prefix} ${name}
+```
+
+```python
+# main.vibe
+from "./shared.vibe" import prefix, format_name
+import "./shared.vibe" as shared
+
+print(prefix)
+print(format_name("Ada"))
+print(shared["format_name"]("Grace"))
+```
+
 ## 4. Run It
 
 With Ollama:
@@ -107,11 +128,21 @@ Tracing is useful when the model decides to call helper functions or when it ret
 
 The trace is written to stderr and includes raw model responses and helper-call activity.
 
+## 6. Validate Syntax Without Running AI
+
+When you only want to check parsing or module resolution, use `--check`:
+
+```bash
+./bin/vibelang --check main.vibe
+```
+
 ## Next Steps
 
 - Read the [how-to guide](how-to-run-local-models.md) for backend-specific setup.
 - Read the [reference](reference.md) for language syntax and builtins.
+- Run [examples/modules/main.vibe](../examples/modules/main.vibe) to see imports and module-backed AI functions.
 - Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
 - Run [examples/tool_chain.vibe](../examples/tool_chain.vibe) to see AI tool calls in action.
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.
+- Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.

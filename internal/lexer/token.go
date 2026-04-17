@@ -9,6 +9,9 @@ const (
 	TokenPrompt     TokenKind = "prompt"
 
 	TokenDef      TokenKind = "def"
+	TokenImport   TokenKind = "import"
+	TokenFrom     TokenKind = "from"
+	TokenAs       TokenKind = "as"
 	TokenIf       TokenKind = "if"
 	TokenElif     TokenKind = "elif"
 	TokenElse     TokenKind = "else"
@@ -50,6 +53,9 @@ const (
 
 var keywords = map[string]TokenKind{
 	"def":      TokenDef,
+	"import":   TokenImport,
+	"from":     TokenFrom,
+	"as":       TokenAs,
 	"if":       TokenIf,
 	"elif":     TokenElif,
 	"else":     TokenElse,

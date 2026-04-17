@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build CLI
+        run: go build ./cmd/vibelang
+
+      - name: Parse example programs
+        run: |
+          go run ./cmd/vibelang --check examples/hello.vibe
+          go run ./cmd/vibelang --check examples/keyword_args.vibe
+          go run ./cmd/vibelang --check examples/tool_chain.vibe
+          go run ./cmd/vibelang --check examples/pi_file.vibe
+          go run ./cmd/vibelang --check examples/stdlib.vibe
+          go run ./cmd/vibelang --check examples/modules/main.vibe
+          go run ./cmd/vibelang --check examples/ops.vibe

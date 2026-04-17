@@ -37,6 +37,7 @@ type builtinFunction struct {
 	tool       *ToolSpec
 	defaults   map[string]any
 	promptSafe bool
+	bindArgs   bool
 }
 
 func (b *builtinFunction) Name() string {
@@ -61,14 +62,23 @@ func (b *builtinFunction) ToolSpec() ToolSpec {
 type AIFunction struct {
 	Def      *ast.FunctionDef
 	defaults map[string]any
+	captured map[string]any
 }
 
-func NewAIFunction(def *ast.FunctionDef, defaults map[string]any) *AIFunction {
+func NewAIFunction(def *ast.FunctionDef, defaults map[string]any, captured map[string]any) *AIFunction {
 	copiedDefaults := make(map[string]any, len(defaults))
 	for name, value := range defaults {
 		copiedDefaults[name] = value
 	}
-	return &AIFunction{Def: def, defaults: copiedDefaults}
+	copiedCaptured := make(map[string]any, len(captured))
+	for name, value := range captured {
+		copiedCaptured[name] = value
+	}
+	return &AIFunction{
+		Def:      def,
+		defaults: copiedDefaults,
+		captured: copiedCaptured,
+	}
 }
 
 func (f *AIFunction) Name() string {
@@ -90,6 +100,17 @@ func (f *AIFunction) Call(ctx context.Context, interpreter *Interpreter, args []
 		return nil, err
 	}
 	return interpreter.invokeAIFunction(ctx, f, bound, 0)
+}
+
+func (f *AIFunction) scope(args map[string]any) map[string]any {
+	scope := make(map[string]any, len(f.captured)+len(args))
+	for name, value := range f.captured {
+		scope[name] = value
+	}
+	for name, value := range args {
+		scope[name] = value
+	}
+	return scope
 }
 
 func (f *AIFunction) bindArguments(args []CallArgument) (map[string]any, error) {
@@ -114,32 +135,31 @@ func (f *AIFunction) hasParam(name string) bool {
 }
 
 func bindBuiltinCallArguments(function *builtinFunction, args []CallArgument) ([]any, error) {
-	if len(args) == 0 {
-		return nil, nil
+	if function.tool != nil && len(function.tool.Params) > 0 && (function.bindArgs || hasNamedCallArguments(args)) {
+		bound, err := bindCallArguments(function.name, function.tool.Params, args, function.defaults)
+		if err != nil {
+			return nil, err
+		}
+		return positionalArguments(function.tool.Params, bound), nil
 	}
 
-	hasNamed := false
 	positional := make([]any, 0, len(args))
 	for _, arg := range args {
 		if arg.Name != "" {
-			hasNamed = true
-			break
+			return nil, fmt.Errorf("%s does not accept keyword arguments", function.name)
 		}
 		positional = append(positional, arg.Value)
 	}
-	if !hasNamed {
-		return positional, nil
-	}
+	return positional, nil
+}
 
-	if function.tool == nil || len(function.tool.Params) == 0 {
-		return nil, fmt.Errorf("%s does not accept keyword arguments", function.name)
+func hasNamedCallArguments(args []CallArgument) bool {
+	for _, arg := range args {
+		if arg.Name != "" {
+			return true
+		}
 	}
-
-	bound, err := bindCallArguments(function.name, function.tool.Params, args, function.defaults)
-	if err != nil {
-		return nil, err
-	}
-	return positionalArguments(function.tool.Params, bound), nil
+	return false
 }
 
 func bindCallArguments(functionName string, params []ast.Param, args []CallArgument, defaults map[string]any) (map[string]any, error) {

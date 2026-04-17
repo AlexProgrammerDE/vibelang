@@ -44,11 +44,13 @@ This design is less flashy than native provider tool calling, but it is easier t
 Without the interpreter, a prompt program quickly turns into opaque glue code. The interpreter adds structure that the model alone does not provide:
 
 - lexical scoping for names
+- module loading with isolated exports
 - collection literals and indexing
 - loops and conditionals
 - builtins for routine data work
-- builtin tools for file access, path handling, JSON, strings, and environment inspection
+- builtin tools for file access, path handling, JSON, strings, environment inspection, HTTP, TCP sockets, local process execution, math, and time
 - Python-like default parameters and keyword arguments for optional inputs
+- captured non-function values inside AI function bodies
 - type coercion for model outputs
 - bounded helper-call recursion
 

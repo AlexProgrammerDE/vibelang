@@ -1,0 +1,7 @@
+prefix = "Dr."
+
+def format_name(name: string) -> string:
+    Return exactly: ${prefix} ${name}
+
+def headline(name: string) -> string:
+    Write a crisp one-line headline for ${prefix} ${name}.

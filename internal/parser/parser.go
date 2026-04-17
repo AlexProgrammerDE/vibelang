@@ -93,6 +93,10 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 	switch line.Tokens[0].Kind {
 	case lexer.TokenDef:
 		return p.parseFunction(indent)
+	case lexer.TokenImport:
+		return p.parseImport()
+	case lexer.TokenFrom:
+		return p.parseFromImport()
 	case lexer.TokenIf:
 		return p.parseIf(indent)
 	case lexer.TokenWhile:
@@ -122,6 +126,97 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 	default:
 		return p.parseSimpleStatement()
 	}
+}
+
+func (p *Parser) parseImport() (ast.Stmt, error) {
+	line := p.lines[p.index]
+	cursor := newLineCursor(line.Tokens)
+
+	if _, err := cursor.expect(lexer.TokenImport); err != nil {
+		return nil, err
+	}
+	pathToken, err := cursor.expect(lexer.TokenString)
+	if err != nil {
+		return nil, err
+	}
+	path, err := strconv.Unquote(pathToken.Lexeme)
+	if err != nil {
+		return nil, fmt.Errorf("line %d:%d: invalid import path %q", pathToken.Line, pathToken.Column, pathToken.Lexeme)
+	}
+
+	alias := ""
+	if cursor.match(lexer.TokenAs) {
+		name, err := cursor.expect(lexer.TokenIdentifier)
+		if err != nil {
+			return nil, err
+		}
+		alias = name.Lexeme
+	}
+	if !cursor.done() {
+		return nil, fmt.Errorf("line %d: unexpected token %q", line.Number, cursor.peek().Lexeme)
+	}
+
+	p.index++
+	return &ast.ImportStmt{
+		Line:  line.Number,
+		Path:  path,
+		Alias: alias,
+	}, nil
+}
+
+func (p *Parser) parseFromImport() (ast.Stmt, error) {
+	line := p.lines[p.index]
+	cursor := newLineCursor(line.Tokens)
+
+	if _, err := cursor.expect(lexer.TokenFrom); err != nil {
+		return nil, err
+	}
+	pathToken, err := cursor.expect(lexer.TokenString)
+	if err != nil {
+		return nil, err
+	}
+	path, err := strconv.Unquote(pathToken.Lexeme)
+	if err != nil {
+		return nil, fmt.Errorf("line %d:%d: invalid import path %q", pathToken.Line, pathToken.Column, pathToken.Lexeme)
+	}
+	if _, err := cursor.expect(lexer.TokenImport); err != nil {
+		return nil, err
+	}
+
+	names := make([]ast.ImportName, 0)
+	for {
+		name, err := cursor.expect(lexer.TokenIdentifier)
+		if err != nil {
+			return nil, err
+		}
+
+		alias := ""
+		if cursor.match(lexer.TokenAs) {
+			aliasToken, err := cursor.expect(lexer.TokenIdentifier)
+			if err != nil {
+				return nil, err
+			}
+			alias = aliasToken.Lexeme
+		}
+
+		names = append(names, ast.ImportName{Name: name.Lexeme, Alias: alias})
+		if !cursor.match(lexer.TokenComma) {
+			break
+		}
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("line %d: expected at least one imported name", line.Number)
+	}
+	if !cursor.done() {
+		return nil, fmt.Errorf("line %d: unexpected token %q", line.Number, cursor.peek().Lexeme)
+	}
+
+	p.index++
+	return &ast.FromImportStmt{
+		Line:  line.Number,
+		Path:  path,
+		Names: names,
+	}, nil
 }
 
 func (p *Parser) parseSimpleStatement() (ast.Stmt, error) {

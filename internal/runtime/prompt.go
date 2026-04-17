@@ -129,6 +129,12 @@ func (i *Interpreter) newPromptEnvironment(values map[string]any) *Environment {
 	for _, name := range names {
 		env.Define(name, i.promptHelpers[name])
 	}
+	if value, err := i.globals.Get("pi"); err == nil {
+		env.Define("pi", value)
+	}
+	if value, err := i.globals.Get("e"); err == nil {
+		env.Define("e", value)
+	}
 	for name, value := range values {
 		env.Define(name, value)
 	}

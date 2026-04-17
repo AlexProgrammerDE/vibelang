@@ -204,3 +204,18 @@ result = summarize(name="Ada", tone="playful")
 		t.Fatalf("expected 2 call arguments, got %d", len(call.Arguments))
 	}
 }
+
+func TestParseModuleImports(t *testing.T) {
+	source := `import "./shared.vibe" as shared
+from "./shared.vibe" import format_name, helper as alias_helper
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(program.Statements))
+	}
+}

@@ -67,6 +67,9 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, toolBuiltin("make_dir", builtinMakeDir, "string", "Create a directory and any missing parents. Return the created path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("append_file", builtinAppendFile, "string", "Append text to a file, creating it and its parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("write_json", builtinWriteJSON, "string", "Write a value as formatted JSON, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
+	interpreter.globals.Define("pi", math.Pi)
+	interpreter.globals.Define("e", math.E)
+	registerExtendedBuiltins(interpreter)
 }
 
 func registerBuiltin(interpreter *Interpreter, builtin *builtinFunction) {

@@ -30,9 +30,10 @@ Useful flags:
 - `--endpoint`: override the default Ollama URL.
 - `--temperature`: lower values make JSON output more stable.
 - `--max-tokens`: cap the model output size for each AI step.
+- `--check`: parse the program and exit before contacting the model.
 - `--trace`: inspect raw model responses and helper calls.
 
-`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/stdlib.vibe` is useful once you want to verify expression-aware prompt interpolation and the broader standard library.
+`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/stdlib.vibe` and `examples/ops.vibe` cover the broader standard library.
 
 ## Run With llama.cpp
 

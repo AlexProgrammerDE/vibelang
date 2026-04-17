@@ -1,0 +1,17 @@
+workspace = join_path([cwd(), "tmp", "ops"])
+make_dir(workspace)
+
+source = join_path([workspace, "notes.txt"])
+copy = join_path([workspace, "notes-copy.txt"])
+archive = join_path([workspace, "notes-archive.txt"])
+
+write_file(source, "vibelang")
+copy_file(source, copy)
+move_file(copy, archive)
+
+matches = glob(join_path([workspace, "*.txt"]))
+result = run_process("bash", args=["-lc", "wc -c < notes-archive.txt"], dir=workspace)
+
+print(matches)
+print(result["stdout"])
+print(sqrt(81))

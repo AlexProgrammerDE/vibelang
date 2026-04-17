@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 
@@ -31,6 +32,10 @@ type Interpreter struct {
 	functions     map[string]*AIFunction
 	tools         map[string]ToolCallable
 	promptHelpers map[string]Callable
+	moduleCache   map[string]*loadedModule
+	loadingModule map[string]bool
+	sockets       map[string]*socketHandle
+	nextResource  int64
 }
 
 type controlSignal int
@@ -62,6 +67,9 @@ func NewInterpreter(config Config) *Interpreter {
 		functions:     make(map[string]*AIFunction),
 		tools:         make(map[string]ToolCallable),
 		promptHelpers: make(map[string]Callable),
+		moduleCache:   make(map[string]*loadedModule),
+		loadingModule: make(map[string]bool),
+		sockets:       make(map[string]*socketHandle),
 	}
 
 	registerBuiltins(interpreter)
@@ -69,7 +77,29 @@ func NewInterpreter(config Config) *Interpreter {
 }
 
 func (i *Interpreter) Execute(ctx context.Context, program *ast.Program) error {
-	signal, err := i.executeBlock(ctx, i.globals, program.Statements)
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	return i.executeProgram(ctx, program, workingDir, "")
+}
+
+func (i *Interpreter) ExecuteFile(ctx context.Context, program *ast.Program, sourcePath string) error {
+	absolutePath, err := filepath.Abs(sourcePath)
+	if err != nil {
+		absolutePath = sourcePath
+	}
+	return i.executeProgram(ctx, program, filepath.Dir(absolutePath), absolutePath)
+}
+
+func (i *Interpreter) executeProgram(ctx context.Context, program *ast.Program, moduleDir, sourcePath string) error {
+	env := NewEnvironment(i.globals)
+	env.Define("__dir__", moduleDir)
+	if sourcePath != "" {
+		env.Define("__file__", sourcePath)
+	}
+
+	signal, err := i.executeBlock(ctx, env, program.Statements, moduleDir)
 	if err != nil {
 		return err
 	}
@@ -79,9 +109,9 @@ func (i *Interpreter) Execute(ctx context.Context, program *ast.Program) error {
 	return nil
 }
 
-func (i *Interpreter) executeBlock(ctx context.Context, env *Environment, statements []ast.Stmt) (controlSignal, error) {
+func (i *Interpreter) executeBlock(ctx context.Context, env *Environment, statements []ast.Stmt, moduleDir string) (controlSignal, error) {
 	for _, statement := range statements {
-		signal, err := i.executeStatement(ctx, env, statement)
+		signal, err := i.executeStatement(ctx, env, statement, moduleDir)
 		if err != nil {
 			return signalNone, err
 		}
@@ -92,18 +122,27 @@ func (i *Interpreter) executeBlock(ctx context.Context, env *Environment, statem
 	return signalNone, nil
 }
 
-func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, statement ast.Stmt) (controlSignal, error) {
+func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, statement ast.Stmt, moduleDir string) (controlSignal, error) {
 	switch node := statement.(type) {
 	case *ast.FunctionDef:
 		defaults, err := i.evaluateParameterDefaults(ctx, env, node.Params)
 		if err != nil {
 			return signalNone, err
 		}
-		function := NewAIFunction(node, defaults)
+		function := NewAIFunction(node, defaults, env.SnapshotValues())
 		env.Define(node.Name, function)
-		i.globals.Define(node.Name, function)
 		i.functions[node.Name] = function
 		i.tools[node.Name] = function
+		return signalNone, nil
+	case *ast.ImportStmt:
+		if err := i.executeImport(ctx, env, moduleDir, node); err != nil {
+			return signalNone, err
+		}
+		return signalNone, nil
+	case *ast.FromImportStmt:
+		if err := i.executeFromImport(ctx, env, moduleDir, node); err != nil {
+			return signalNone, err
+		}
 		return signalNone, nil
 	case *ast.AssignStmt:
 		value, err := i.evaluateExpression(ctx, env, node.Value)
@@ -123,9 +162,9 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 			return signalNone, err
 		}
 		if condition {
-			return i.executeBlock(ctx, env, node.Then)
+			return i.executeBlock(ctx, env, node.Then, moduleDir)
 		}
-		return i.executeBlock(ctx, env, node.Else)
+		return i.executeBlock(ctx, env, node.Else, moduleDir)
 	case *ast.WhileStmt:
 		for {
 			condition, err := i.evaluateCondition(ctx, env, node.Condition)
@@ -135,7 +174,7 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 			if !condition {
 				return signalNone, nil
 			}
-			signal, err := i.executeBlock(ctx, env, node.Body)
+			signal, err := i.executeBlock(ctx, env, node.Body, moduleDir)
 			if err != nil {
 				return signalNone, err
 			}
@@ -158,7 +197,7 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 		}
 		for _, value := range values {
 			env.Set(node.Name, value)
-			signal, err := i.executeBlock(ctx, env, node.Body)
+			signal, err := i.executeBlock(ctx, env, node.Body, moduleDir)
 			if err != nil {
 				return signalNone, err
 			}
@@ -410,11 +449,12 @@ func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environme
 }
 
 func (i *Interpreter) invokeAIFunction(ctx context.Context, function *AIFunction, args map[string]any, depth int) (any, error) {
-	instructions, err := i.renderPromptText(ctx, function.Def.Body, args)
+	scope := function.scope(args)
+	instructions, err := i.renderPromptText(ctx, function.Def.Body, scope)
 	if err != nil {
 		return nil, err
 	}
-	return i.invokeAITask(ctx, function, args, instructions, depth, function.Name())
+	return i.invokeAITask(ctx, function, scope, instructions, depth, function.Name())
 }
 
 func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string) (any, error) {

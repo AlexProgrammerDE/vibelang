@@ -6,11 +6,13 @@
 
 - Uses indentation-sensitive, Python-like syntax for variables, expressions, loops, and conditionals.
 - Treats every `def` body as natural-language instructions instead of imperative code.
+- Supports module loading with `import "./module.vibe" as module` and `from "./module.vibe" import helper`.
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
-- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, and environment helpers.
+- Captures surrounding non-function values when an AI function is defined, so prompts can safely use module constants and top-level configuration.
+- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, and local process helpers.
 - Runs against local model servers, with first-class support for Ollama and `llama.cpp`.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 
@@ -38,6 +40,18 @@ llama-server -m /models/gemma4.gguf --port 8080
 ```
 
 If your local model tag or GGUF filename uses a different name, pass that exact value with `--model`.
+
+Validate a program without hitting the model:
+
+```bash
+./bin/vibelang --check examples/modules/main.vibe
+```
+
+Print the interpreter version:
+
+```bash
+./bin/vibelang --version
+```
 
 ## Example
 
@@ -72,6 +86,26 @@ def explain_file(path: string, digits: string, tone: string = "matter-of-fact") 
     Mention that ${digits} has ${len(digits)} characters.
 ```
 
+Modules are ordinary `.vibe` files:
+
+```python
+# shared.vibe
+prefix = "Dr."
+
+def format_name(name: string) -> string:
+    Return exactly: ${prefix} ${name}
+```
+
+```python
+# main.vibe
+from "./shared.vibe" import prefix, format_name
+import "./shared.vibe" as shared
+
+print(prefix)
+print(format_name("Ada"))
+print(shared["format_name"]("Grace"))
+```
+
 ## Project Layout
 
 - `cmd/vibelang`: CLI entrypoint.
@@ -82,6 +116,16 @@ def explain_file(path: string, digits: string, tone: string = "matter-of-fact") 
 - `examples`: runnable sample programs.
 - `docs`: tutorial, how-to, reference, and explanation documents.
 
+## Expanded Standard Library
+
+The deterministic runtime now covers more of the boring work that AI functions should not hallucinate:
+
+- Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`
+- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`
+- System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
+- Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
+- Network: `http_request`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
+
 ## Documentation
 
 - [Tutorial](docs/tutorial.md)
@@ -91,4 +135,4 @@ def explain_file(path: string, digits: string, tone: string = "matter-of-fact") 
 
 ## Status
 
-The interpreter is production-shaped, but the runtime behavior still depends on how well the selected local model follows the JSON protocol. Lower temperatures and smaller helper-call limits generally make execution more predictable.
+The interpreter is production-shaped, but the runtime behavior still depends on how well the selected local model follows the JSON protocol. Lower temperatures and smaller helper-call limits generally make execution more predictable. `run_process`, network access, and file-mutating helpers are intentionally powerful, so treat `.vibe` programs the way you would treat any other local code execution surface.
