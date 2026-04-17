@@ -20,6 +20,8 @@ The tradeoff is that function bodies are not statically analyzable in the same w
 - declared parameter and return types
 - a JSON-only model protocol
 
+Prompt interpolation stays on the deterministic side of the language. `${...}` placeholders are parsed as real vibelang expressions, so a prompt can reference `${items[0]}`, `${len(digits)}`, or `${basename(path)}` without forcing the model to reconstruct obvious facts from raw JSON inputs.
+
 Inline `* prompt` expressions take the same idea one step further. They let you ask the model for a value or action directly inside an assignment, condition, loop header, or standalone statement, while still routing everything through the interpreter's normal execution model.
 
 ## Why Tool Calls Use a Runtime Loop
@@ -43,7 +45,7 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 - collection literals and indexing
 - loops and conditionals
 - builtins for routine data work
-- builtin tools for file access and environment inspection
+- builtin tools for file access, path handling, JSON, strings, and environment inspection
 - type coercion for model outputs
 - bounded helper-call recursion
 

@@ -1,0 +1,14 @@
+workspace = join_path([cwd(), "tmp"])
+make_dir(workspace)
+path = join_path([workspace, "pi.txt"])
+
+def explain_file(path: string, digits: string) -> string:
+    Write one crisp sentence about the file ${basename(path)} inside ${dirname(path)}.
+    Mention that it contains ${digits} and that the value has ${len(digits)} characters.
+
+digits = * return the first 5 digits of pi as a string without explanation.
+write_file(path, digits)
+
+message = explain_file(path, digits)
+print(message)
+print(read_file(path))

@@ -1,13 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
 	"vibelang/internal/ast"
+	"vibelang/internal/parser"
 )
 
 type ToolEvent struct {
@@ -16,9 +17,7 @@ type ToolEvent struct {
 	Result    any
 }
 
-var interpolationPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-func buildPrompt(function *AIFunction, args map[string]any, tools []ToolSpec, history []ToolEvent) (string, error) {
+func buildPrompt(function *AIFunction, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent) (string, error) {
 	inputJSON, err := json.MarshalIndent(args, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal function inputs: %w", err)
@@ -32,7 +31,7 @@ func buildPrompt(function *AIFunction, args map[string]any, tools []ToolSpec, hi
 	builder.WriteString(fmt.Sprintf("%s(%s) -> %s\n\n", function.Name(), formatParams(function.Def.Params), function.Def.ReturnType.String()))
 
 	builder.WriteString("Function instructions:\n")
-	builder.WriteString(interpolatePrompt(function.Def.Body, args))
+	builder.WriteString(instructions)
 	builder.WriteString("\n\n")
 
 	builder.WriteString("Inputs:\n")
@@ -67,25 +66,104 @@ func buildPrompt(function *AIFunction, args map[string]any, tools []ToolSpec, hi
 	builder.WriteString("- Output JSON only. Do not use markdown.\n")
 	builder.WriteString("- Use action=call only when one helper function is required next.\n")
 	builder.WriteString("- Keep helper arguments valid for the declared parameter names.\n")
+	builder.WriteString("- Prefer helper calls for deterministic filesystem, path, string, JSON, and environment work.\n")
 	builder.WriteString(fmt.Sprintf("- The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
 
 	return builder.String(), nil
 }
 
-func interpolatePrompt(body string, args map[string]any) string {
-	return interpolationPattern.ReplaceAllStringFunc(body, func(match string) string {
-		name := interpolationPattern.FindStringSubmatch(match)[1]
-		value, ok := args[name]
-		if !ok {
-			return match
+func (i *Interpreter) renderPromptText(ctx context.Context, body string, values map[string]any) (string, error) {
+	env := i.newPromptEnvironment(values)
+	return interpolatePrompt(body, func(source string) (any, error) {
+		expr, err := parser.ParseExpressionSource(source)
+		if err != nil {
+			return nil, err
 		}
-		switch value.(type) {
-		case string, bool, int, int64, float64:
-			return stringify(value)
-		default:
-			return jsonString(value)
-		}
+		return i.evaluateExpression(ctx, env, expr)
 	})
+}
+
+func (i *Interpreter) newPromptEnvironment(values map[string]any) *Environment {
+	env := NewEnvironment(nil)
+
+	names := make([]string, 0, len(i.promptHelpers))
+	for name := range i.promptHelpers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		env.Define(name, i.promptHelpers[name])
+	}
+	for name, value := range values {
+		env.Define(name, value)
+	}
+	return env
+}
+
+func interpolatePrompt(body string, resolve func(string) (any, error)) (string, error) {
+	var builder strings.Builder
+
+	for index := 0; index < len(body); {
+		if body[index] == '$' && index+1 < len(body) && body[index+1] == '{' {
+			exprSource, nextIndex, err := readPromptPlaceholder(body, index+2)
+			if err != nil {
+				return "", err
+			}
+			exprSource = strings.TrimSpace(exprSource)
+			if exprSource == "" {
+				return "", fmt.Errorf("prompt interpolation cannot be empty")
+			}
+			value, err := resolve(exprSource)
+			if err != nil {
+				return "", fmt.Errorf("interpolate %q: %w", exprSource, err)
+			}
+			builder.WriteString(stringify(value))
+			index = nextIndex
+			continue
+		}
+
+		builder.WriteByte(body[index])
+		index++
+	}
+
+	return builder.String(), nil
+}
+
+func readPromptPlaceholder(body string, start int) (string, int, error) {
+	depth := 1
+	var quote byte
+	escaped := false
+
+	for index := start; index < len(body); index++ {
+		ch := body[index]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+
+		switch ch {
+		case '"', '\'':
+			quote = ch
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return body[start:index], index + 1, nil
+			}
+		}
+	}
+
+	return "", 0, fmt.Errorf("unterminated prompt interpolation")
 }
 
 func formatParams(params []ast.Param) string {

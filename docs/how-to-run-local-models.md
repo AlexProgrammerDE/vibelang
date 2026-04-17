@@ -32,7 +32,7 @@ Useful flags:
 - `--max-tokens`: cap the model output size for each AI step.
 - `--trace`: inspect raw model responses and helper calls.
 
-`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls.
+`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/stdlib.vibe` is useful once you want to verify expression-aware prompt interpolation and the broader standard library.
 
 ## Run With llama.cpp
 

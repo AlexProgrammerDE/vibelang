@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -215,5 +216,144 @@ print(read_file(path))
 
 	if stdout.String() != "true\n31415\n" {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "true\n31415\n", stdout.String())
+	}
+}
+
+func TestInterpreterInterpolatesExpressionsInAIFunctionBodies(t *testing.T) {
+	source := `def describe(items: list[string]) -> string:
+    The first item is ${items[0]}.
+    The list length is ${len(items)}.
+
+values = ["alpha", "beta", "gamma"]
+print(describe(values))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"ok"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(client.prompts) != 1 {
+		t.Fatalf("expected 1 model prompt, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], "The first item is alpha.") {
+		t.Fatalf("prompt did not interpolate indexed value:\n%s", client.prompts[0])
+	}
+	if !strings.Contains(client.prompts[0], "The list length is 3.") {
+		t.Fatalf("prompt did not interpolate len() result:\n%s", client.prompts[0])
+	}
+}
+
+func TestInterpreterInterpolatesExpressionsInInlinePrompts(t *testing.T) {
+	source := `items = ["alpha", "beta"]
+message = * mention ${items[1]} and the length ${len(items)}.
+print(message)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"ok"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(client.prompts) != 1 {
+		t.Fatalf("expected 1 model prompt, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], "mention beta and the length 2.") {
+		t.Fatalf("inline prompt did not interpolate expressions:\n%s", client.prompts[0])
+	}
+}
+
+func TestInterpreterProvidesExpandedStandardLibrary(t *testing.T) {
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd returned error: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Chdir returned error: %v", err)
+	}
+	defer os.Chdir(originalWD)
+
+	t.Setenv("VIBELANG_TEST_ENV", "configured")
+
+	source := `workspace = join_path([cwd(), "data"])
+make_dir(workspace)
+text_path = join_path([workspace, "notes.txt"])
+json_path = join_path([workspace, "config.json"])
+write_file(text_path, trim("  hello  "))
+append_file(text_path, "\nworld")
+write_json(json_path, {"name": upper("ada"), "count": len(split("a,b,c", ","))})
+payload = read_json(json_path)
+entries = list_dir(workspace)
+print(basename(text_path))
+print(dirname(text_path) == workspace)
+print(abs_path("data") == workspace)
+print(is_dir(workspace))
+print(contains(entries, "notes.txt"))
+print(payload["name"])
+print(payload["count"])
+print(join(split("a,b,c", ","), "-"))
+print(lower(replace("HELLO ADA", "ADA", env("VIBELANG_TEST_ENV"))))
+print(read_file(text_path))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"notes.txt",
+		"true",
+		"true",
+		"true",
+		"true",
+		"ADA",
+		"3",
+		"a-b-c",
+		"hello configured",
+		"hello",
+		"world",
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }

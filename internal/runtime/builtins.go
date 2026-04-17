@@ -4,37 +4,60 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"vibelang/internal/ast"
 )
 
 func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, &builtinFunction{name: "print", call: builtinPrint})
-	registerBuiltin(interpreter, toolBuiltin("len", builtinLen, "int", "Return the length of a string, list, or dict.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("str", builtinStr, "string", "Convert any value to a string.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("int", builtinInt, "int", "Convert a value to an integer.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("float", builtinFloat, "float", "Convert a value to a float.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("bool", builtinBool, "bool", "Convert a value to a bool.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("type", builtinType, "string", "Return the runtime type name for a value.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, &builtinFunction{name: "range", call: builtinRange})
-	registerBuiltin(interpreter, toolBuiltin("append", builtinAppend, "list", "Return a new list with one value appended.", ast.Param{Name: "list", Type: ast.TypeRef{Expr: "list"}}, ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("keys", builtinKeys, "list[string]", "Return the sorted keys from a dict.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
-	registerBuiltin(interpreter, toolBuiltin("values", builtinValues, "list", "Return the dict values in sorted-key order.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
-	registerBuiltin(interpreter, toolBuiltin("json", builtinJSON, "string", "Encode a value as JSON.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, toolBuiltin("cwd", builtinCWD, "string", "Return the current working directory."))
-	registerBuiltin(interpreter, toolBuiltin("file_exists", builtinFileExists, "bool", "Return true when the given path exists.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
-	registerBuiltin(interpreter, toolBuiltin("read_file", builtinReadFile, "string", "Read a UTF-8 text file and return its contents.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("len", builtinLen, "int", "Return the length of a string, list, or dict.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("str", builtinStr, "string", "Convert any value to a string.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("int", builtinInt, "int", "Convert a value to an integer.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("float", builtinFloat, "float", "Convert a value to a float.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("bool", builtinBool, "bool", "Convert a value to a bool.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("type", builtinType, "string", "Return the runtime type name for a value.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, &builtinFunction{name: "range", call: builtinRange, promptSafe: true})
+	registerBuiltin(interpreter, promptToolBuiltin("append", builtinAppend, "list", "Return a new list with one value appended.", ast.Param{Name: "list", Type: ast.TypeRef{Expr: "list"}}, ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("keys", builtinKeys, "list[string]", "Return the sorted keys from a dict.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("values", builtinValues, "list", "Return the dict values in sorted-key order.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("json", builtinJSON, "string", "Encode a value as JSON.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("cwd", builtinCWD, "string", "Return the current working directory."))
+	registerBuiltin(interpreter, promptToolBuiltin("file_exists", builtinFileExists, "bool", "Return true when the given path exists.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("read_file", builtinReadFile, "string", "Read a UTF-8 text file and return its contents.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("join_path", builtinJoinPath, "string", "Join path segments using the host filesystem separator.", ast.Param{Name: "parts", Type: ast.TypeRef{Expr: "list[string]"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("abs_path", builtinAbsPath, "string", "Return the absolute version of a path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("dirname", builtinDirname, "string", "Return the parent directory for a path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("basename", builtinBasename, "string", "Return the final path element.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("list_dir", builtinListDir, "list[string]", "Return the sorted directory entries for a path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("is_dir", builtinIsDir, "bool", "Return true when the path exists and is a directory.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("env", builtinEnv, "any", "Return the value of an environment variable, or none when it is missing.", ast.Param{Name: "name", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("lower", builtinLower, "string", "Convert text to lowercase.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("upper", builtinUpper, "string", "Convert text to uppercase.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("trim", builtinTrim, "string", "Trim leading and trailing whitespace from text.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("split", builtinSplit, "list[string]", "Split text by a separator.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "separator", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("join", builtinJoin, "string", "Join a list of values using a separator.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}, ast.Param{Name: "separator", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("replace", builtinReplace, "string", "Replace every occurrence of one substring with another.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "old", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "new", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("contains", builtinContains, "bool", "Return true when a string contains a substring, a list contains a value, or a dict contains a key.", ast.Param{Name: "container"}, ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("read_json", builtinReadJSON, "any", "Read a JSON file and decode it into vibelang values.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("write_file", builtinWriteFile, "string", "Write text to a file, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("delete_file", builtinDeleteFile, "bool", "Delete a file. Return true if a file was removed and false if it was already missing.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, toolBuiltin("make_dir", builtinMakeDir, "string", "Create a directory and any missing parents. Return the created path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, toolBuiltin("append_file", builtinAppendFile, "string", "Append text to a file, creating it and its parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, toolBuiltin("write_json", builtinWriteJSON, "string", "Write a value as formatted JSON, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
 }
 
 func registerBuiltin(interpreter *Interpreter, builtin *builtinFunction) {
 	interpreter.globals.Define(builtin.name, builtin)
 	if builtin.tool != nil {
 		interpreter.tools[builtin.name] = builtin
+	}
+	if builtin.promptSafe {
+		interpreter.promptHelpers[builtin.name] = builtin
 	}
 }
 
@@ -51,6 +74,12 @@ func toolBuiltin(name string, call func(context.Context, *Interpreter, []any) (a
 	}
 }
 
+func promptToolBuiltin(name string, call func(context.Context, *Interpreter, []any) (any, error), returnType, body string, params ...ast.Param) *builtinFunction {
+	builtin := toolBuiltin(name, call, returnType, body, params...)
+	builtin.promptSafe = true
+	return builtin
+}
+
 func builtinPrint(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
 	parts := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -61,8 +90,8 @@ func builtinPrint(_ context.Context, interpreter *Interpreter, args []any) (any,
 }
 
 func builtinLen(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("len expects 1 argument, got %d", len(args))
+	if err := expectArgCount("len", args, 1); err != nil {
+		return nil, err
 	}
 	switch value := args[0].(type) {
 	case string:
@@ -77,36 +106,36 @@ func builtinLen(_ context.Context, _ *Interpreter, args []any) (any, error) {
 }
 
 func builtinStr(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("str expects 1 argument, got %d", len(args))
+	if err := expectArgCount("str", args, 1); err != nil {
+		return nil, err
 	}
 	return stringify(args[0]), nil
 }
 
 func builtinInt(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("int expects 1 argument, got %d", len(args))
+	if err := expectArgCount("int", args, 1); err != nil {
+		return nil, err
 	}
 	return coerceInt(args[0])
 }
 
 func builtinFloat(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("float expects 1 argument, got %d", len(args))
+	if err := expectArgCount("float", args, 1); err != nil {
+		return nil, err
 	}
 	return coerceFloat(args[0])
 }
 
 func builtinBool(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("bool expects 1 argument, got %d", len(args))
+	if err := expectArgCount("bool", args, 1); err != nil {
+		return nil, err
 	}
 	return coerceBool(args[0])
 }
 
 func builtinType(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("type expects 1 argument, got %d", len(args))
+	if err := expectArgCount("type", args, 1); err != nil {
+		return nil, err
 	}
 	return typeName(args[0]), nil
 }
@@ -159,8 +188,8 @@ func builtinRange(_ context.Context, _ *Interpreter, args []any) (any, error) {
 }
 
 func builtinAppend(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("append expects 2 arguments, got %d", len(args))
+	if err := expectArgCount("append", args, 2); err != nil {
+		return nil, err
 	}
 	list, ok := asList(args[0])
 	if !ok {
@@ -173,8 +202,8 @@ func builtinAppend(_ context.Context, _ *Interpreter, args []any) (any, error) {
 }
 
 func builtinKeys(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("keys expects 1 argument, got %d", len(args))
+	if err := expectArgCount("keys", args, 1); err != nil {
+		return nil, err
 	}
 	dict, ok := asMap(args[0])
 	if !ok {
@@ -193,8 +222,8 @@ func builtinKeys(_ context.Context, _ *Interpreter, args []any) (any, error) {
 }
 
 func builtinValues(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("values expects 1 argument, got %d", len(args))
+	if err := expectArgCount("values", args, 1); err != nil {
+		return nil, err
 	}
 	dict, ok := asMap(args[0])
 	if !ok {
@@ -213,8 +242,8 @@ func builtinValues(_ context.Context, _ *Interpreter, args []any) (any, error) {
 }
 
 func builtinJSON(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("json expects 1 argument, got %d", len(args))
+	if err := expectArgCount("json", args, 1); err != nil {
+		return nil, err
 	}
 	encoded, err := json.Marshal(args[0])
 	if err != nil {
@@ -224,37 +253,37 @@ func builtinJSON(_ context.Context, _ *Interpreter, args []any) (any, error) {
 }
 
 func builtinCWD(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 0 {
-		return nil, fmt.Errorf("cwd expects 0 arguments, got %d", len(args))
+	if err := expectArgCount("cwd", args, 0); err != nil {
+		return nil, err
 	}
 	return os.Getwd()
 }
 
 func builtinFileExists(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("file_exists expects 1 argument, got %d", len(args))
+	if err := expectArgCount("file_exists", args, 1); err != nil {
+		return nil, err
 	}
-	path, ok := args[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("file_exists expects a string path")
+	path, err := requireString("file_exists", args[0], "path")
+	if err != nil {
+		return nil, err
 	}
-	_, err := os.Stat(path)
-	if err == nil {
+	_, statErr := os.Stat(path)
+	if statErr == nil {
 		return true, nil
 	}
-	if os.IsNotExist(err) {
+	if os.IsNotExist(statErr) {
 		return false, nil
 	}
-	return nil, err
+	return nil, statErr
 }
 
 func builtinReadFile(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("read_file expects 1 argument, got %d", len(args))
+	if err := expectArgCount("read_file", args, 1); err != nil {
+		return nil, err
 	}
-	path, ok := args[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("read_file expects a string path")
+	path, err := requireString("read_file", args[0], "path")
+	if err != nil {
+		return nil, err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -264,23 +293,19 @@ func builtinReadFile(_ context.Context, _ *Interpreter, args []any) (any, error)
 }
 
 func builtinWriteFile(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("write_file expects 2 arguments, got %d", len(args))
+	if err := expectArgCount("write_file", args, 2); err != nil {
+		return nil, err
 	}
-	path, ok := args[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("write_file expects a string path")
+	path, err := requireString("write_file", args[0], "path")
+	if err != nil {
+		return nil, err
 	}
-	content, ok := args[1].(string)
-	if !ok {
-		return nil, fmt.Errorf("write_file expects string content")
+	content, err := requireString("write_file", args[1], "content")
+	if err != nil {
+		return nil, err
 	}
-
-	dir := filepath.Dir(path)
-	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, err
-		}
+	if err := ensureParentDir(path); err != nil {
+		return nil, err
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, err
@@ -289,12 +314,12 @@ func builtinWriteFile(_ context.Context, _ *Interpreter, args []any) (any, error
 }
 
 func builtinDeleteFile(_ context.Context, _ *Interpreter, args []any) (any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("delete_file expects 1 argument, got %d", len(args))
+	if err := expectArgCount("delete_file", args, 1); err != nil {
+		return nil, err
 	}
-	path, ok := args[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("delete_file expects a string path")
+	path, err := requireString("delete_file", args[0], "path")
+	if err != nil {
+		return nil, err
 	}
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
@@ -303,6 +328,336 @@ func builtinDeleteFile(_ context.Context, _ *Interpreter, args []any) (any, erro
 		return nil, err
 	}
 	return true, nil
+}
+
+func builtinJoinPath(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("join_path", args, 1); err != nil {
+		return nil, err
+	}
+	parts, err := requireStringList("join_path", args[0], "parts")
+	if err != nil {
+		return nil, err
+	}
+	return filepath.Join(parts...), nil
+}
+
+func builtinAbsPath(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("abs_path", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("abs_path", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	return filepath.Abs(path)
+}
+
+func builtinDirname(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("dirname", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("dirname", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	return filepath.Dir(path), nil
+}
+
+func builtinBasename(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("basename", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("basename", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	return filepath.Base(path), nil
+}
+
+func builtinListDir(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("list_dir", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("list_dir", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry.Name())
+	}
+	return result, nil
+}
+
+func builtinIsDir(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("is_dir", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("is_dir", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return nil, err
+	}
+	return info.IsDir(), nil
+}
+
+func builtinEnv(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("env", args, 1); err != nil {
+		return nil, err
+	}
+	name, err := requireString("env", args[0], "name")
+	if err != nil {
+		return nil, err
+	}
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return nil, nil
+	}
+	return value, nil
+}
+
+func builtinLower(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("lower", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("lower", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	return strings.ToLower(text), nil
+}
+
+func builtinUpper(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("upper", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("upper", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	return strings.ToUpper(text), nil
+}
+
+func builtinTrim(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("trim", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("trim", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	return strings.TrimSpace(text), nil
+}
+
+func builtinSplit(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("split", args, 2); err != nil {
+		return nil, err
+	}
+	text, err := requireString("split", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	separator, err := requireString("split", args[1], "separator")
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(text, separator)
+	result := make([]any, 0, len(parts))
+	for _, part := range parts {
+		result = append(result, part)
+	}
+	return result, nil
+}
+
+func builtinJoin(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("join", args, 2); err != nil {
+		return nil, err
+	}
+	values, err := requireStringList("join", args[0], "values")
+	if err != nil {
+		return nil, err
+	}
+	separator, err := requireString("join", args[1], "separator")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Join(values, separator), nil
+}
+
+func builtinReplace(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("replace", args, 3); err != nil {
+		return nil, err
+	}
+	text, err := requireString("replace", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	oldText, err := requireString("replace", args[1], "old")
+	if err != nil {
+		return nil, err
+	}
+	newText, err := requireString("replace", args[2], "new")
+	if err != nil {
+		return nil, err
+	}
+	return strings.ReplaceAll(text, oldText, newText), nil
+}
+
+func builtinContains(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("contains", args, 2); err != nil {
+		return nil, err
+	}
+	return containsValue(args[0], args[1])
+}
+
+func builtinReadJSON(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("read_json", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("read_json", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal(content, &value); err != nil {
+		return nil, err
+	}
+	return normalizeJSONValue(value), nil
+}
+
+func builtinMakeDir(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("make_dir", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("make_dir", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return nil, err
+	}
+	return path, nil
+}
+
+func builtinAppendFile(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("append_file", args, 2); err != nil {
+		return nil, err
+	}
+	path, err := requireString("append_file", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	content, err := requireString("append_file", args[1], "content")
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureParentDir(path); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if _, err := file.WriteString(content); err != nil {
+		return nil, err
+	}
+	return path, nil
+}
+
+func builtinWriteJSON(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("write_json", args, 2); err != nil {
+		return nil, err
+	}
+	path, err := requireString("write_json", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureParentDir(path); err != nil {
+		return nil, err
+	}
+	encoded, err := json.MarshalIndent(args[1], "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	encoded = append(encoded, '\n')
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		return nil, err
+	}
+	return path, nil
+}
+
+func expectArgCount(name string, args []any, want int) error {
+	if len(args) != want {
+		return fmt.Errorf("%s expects %d argument(s), got %d", name, want, len(args))
+	}
+	return nil
+}
+
+func requireString(name string, value any, param string) (string, error) {
+	text, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("%s expects %s to be a string", name, param)
+	}
+	return text, nil
+}
+
+func requireStringList(name string, value any, param string) ([]string, error) {
+	list, ok := asList(value)
+	if !ok {
+		return nil, fmt.Errorf("%s expects %s to be a list", name, param)
+	}
+	result := make([]string, 0, len(list))
+	for _, item := range list {
+		result = append(result, stringify(item))
+	}
+	return result, nil
+}
+
+func ensureParentDir(path string) error {
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o755)
+}
+
+func normalizeJSONValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(v))
+		for key, item := range v {
+			result[key] = normalizeJSONValue(item)
+		}
+		return result
+	case []any:
+		result := make([]any, 0, len(v))
+		for _, item := range v {
+			result = append(result, normalizeJSONValue(item))
+		}
+		return result
+	case float64:
+		if math.Trunc(v) == v {
+			return int64(v)
+		}
+		return v
+	default:
+		return v
+	}
 }
 
 func joinWithSpace(parts []string) string {

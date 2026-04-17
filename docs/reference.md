@@ -21,7 +21,8 @@ def name(param: type, other: type) -> return_type:
 Notes:
 
 - Function bodies are raw text, not statements.
-- `${name}` style placeholders are interpolated from bound arguments before the prompt is sent to the model.
+- `${...}` placeholders are evaluated as normal vibelang expressions before the prompt is sent to the model.
+- Prompt interpolation can use arguments, current values, indexing, arithmetic, and prompt-safe builtins such as `len`, `json`, `basename`, or `join_path`.
 - Parameter and return types are optional. Omitted types default to `any`.
 
 ### Inline Prompt Expression
@@ -39,7 +40,7 @@ Notes:
 
 - `* prompt` is a full expression form when it appears as the whole right-hand side of an assignment, the whole condition of `if`/`elif`/`while`, the iterable in `for ... in`, or a standalone expression statement.
 - Inline prompts receive the current non-function variables as input.
-- `${name}` interpolation also works inside inline prompts.
+- `${...}` interpolation also works inside inline prompts.
 - Conditions coerce the returned value to `bool`. Other inline prompts default to `any`.
 
 ### Statements
@@ -104,8 +105,26 @@ The runtime coerces model outputs to the declared return type when possible.
 - `cwd()`: return the current working directory
 - `file_exists(path)`: return whether a path exists
 - `read_file(path)`: read a UTF-8 text file
+- `join_path(parts)`: join path segments
+- `abs_path(path)`: resolve an absolute path
+- `dirname(path)`: return the parent directory
+- `basename(path)`: return the final path element
+- `list_dir(path)`: return sorted directory entries
+- `is_dir(path)`: return whether a path is a directory
+- `env(name)`: return an environment variable or `none`
+- `lower(text)`: lowercase a string
+- `upper(text)`: uppercase a string
+- `trim(text)`: trim surrounding whitespace
+- `split(text, separator)`: split a string into a list
+- `join(values, separator)`: join a list into a string
+- `replace(text, old, new)`: replace all substring matches
+- `contains(container, value)`: containment check as a builtin helper
+- `read_json(path)`: read and decode JSON
 - `write_file(path, content)`: write a UTF-8 text file and return the path
 - `delete_file(path)`: delete a file and return whether anything was removed
+- `make_dir(path)`: create a directory tree and return the path
+- `append_file(path, content)`: append text to a file and return the path
+- `write_json(path, value)`: write formatted JSON and return the path
 
 ## AI Function Protocol
 

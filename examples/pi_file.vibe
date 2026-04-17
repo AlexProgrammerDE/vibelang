@@ -1,4 +1,6 @@
-path = "tmp/pi.txt"
+workspace = join_path([cwd(), "tmp"])
+make_dir(workspace)
+path = join_path([workspace, "pi.txt"])
 digits = * return the first 5 digits of pi as a string without explanation.
 
 if * check whether ${path} already exists:

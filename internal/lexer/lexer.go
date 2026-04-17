@@ -131,6 +131,7 @@ func tokenize(content string, line, indent int) ([]Token, bool, error) {
 			i++
 			escaped := false
 			terminated := false
+		stringLoop:
 			for i < len(content) {
 				if escaped {
 					escaped = false
@@ -144,7 +145,7 @@ func tokenize(content string, line, indent int) ([]Token, bool, error) {
 				case quote:
 					i++
 					terminated = true
-					break
+					break stringLoop
 				default:
 					i++
 				}

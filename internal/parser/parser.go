@@ -31,6 +31,33 @@ func ParseFile(file lexer.File) (*ast.Program, error) {
 	return &ast.Program{Statements: statements}, nil
 }
 
+func ParseExpressionSource(source string) (ast.Expr, error) {
+	file, err := lexer.Lex(source)
+	if err != nil {
+		return nil, err
+	}
+
+	var tokens []lexer.Token
+	found := false
+	for _, line := range file.Lines {
+		if line.Blank || line.CommentOnly {
+			continue
+		}
+		if line.LexError != nil {
+			return nil, line.LexError
+		}
+		if found {
+			return nil, fmt.Errorf("expression source must contain exactly one expression")
+		}
+		tokens = line.Tokens
+		found = true
+	}
+	if !found {
+		return nil, fmt.Errorf("expression source is empty")
+	}
+	return parseExpressionTokens(tokens)
+}
+
 func (p *Parser) parseStatements(indent int) ([]ast.Stmt, error) {
 	statements := make([]ast.Stmt, 0)
 

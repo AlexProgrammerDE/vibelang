@@ -22,14 +22,15 @@ type Config struct {
 }
 
 type Interpreter struct {
-	model        model.Client
-	stdout       io.Writer
-	trace        io.Writer
-	maxAISteps   int
-	maxCallDepth int
-	globals      *Environment
-	functions    map[string]*AIFunction
-	tools        map[string]ToolCallable
+	model         model.Client
+	stdout        io.Writer
+	trace         io.Writer
+	maxAISteps    int
+	maxCallDepth  int
+	globals       *Environment
+	functions     map[string]*AIFunction
+	tools         map[string]ToolCallable
+	promptHelpers map[string]Callable
 }
 
 type controlSignal int
@@ -52,14 +53,15 @@ func NewInterpreter(config Config) *Interpreter {
 	}
 
 	interpreter := &Interpreter{
-		model:        config.Model,
-		stdout:       config.Stdout,
-		trace:        config.Trace,
-		maxAISteps:   config.MaxAISteps,
-		maxCallDepth: config.MaxCallDepth,
-		globals:      NewEnvironment(nil),
-		functions:    make(map[string]*AIFunction),
-		tools:        make(map[string]ToolCallable),
+		model:         config.Model,
+		stdout:        config.Stdout,
+		trace:         config.Trace,
+		maxAISteps:    config.MaxAISteps,
+		maxCallDepth:  config.MaxCallDepth,
+		globals:       NewEnvironment(nil),
+		functions:     make(map[string]*AIFunction),
+		tools:         make(map[string]ToolCallable),
+		promptHelpers: make(map[string]Callable),
 	}
 
 	registerBuiltins(interpreter)
@@ -384,6 +386,10 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 }
 
 func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environment, prompt *ast.PromptExpr, returnType string) (any, error) {
+	instructions, err := i.renderPromptText(ctx, prompt.Text, env.SnapshotValues())
+	if err != nil {
+		return nil, err
+	}
 	task := &AIFunction{
 		Def: &ast.FunctionDef{
 			Line:       prompt.Line,
@@ -392,14 +398,18 @@ func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environme
 			Body:       prompt.Text,
 		},
 	}
-	return i.invokeAITask(ctx, task, env.SnapshotValues(), 0, "")
+	return i.invokeAITask(ctx, task, env.SnapshotValues(), instructions, 0, "")
 }
 
 func (i *Interpreter) invokeAIFunction(ctx context.Context, function *AIFunction, args map[string]any, depth int) (any, error) {
-	return i.invokeAITask(ctx, function, args, depth, function.Name())
+	instructions, err := i.renderPromptText(ctx, function.Def.Body, args)
+	if err != nil {
+		return nil, err
+	}
+	return i.invokeAITask(ctx, function, args, instructions, depth, function.Name())
 }
 
-func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, depth int, excludeTool string) (any, error) {
+func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string) (any, error) {
 	if i.model == nil {
 		return nil, fmt.Errorf("no model client configured")
 	}
@@ -411,7 +421,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 	tools := sortedToolSpecs(i.tools, excludeTool)
 
 	for step := 0; step < i.maxAISteps; step++ {
-		prompt, err := buildPrompt(function, args, tools, history)
+		prompt, err := buildPrompt(function, instructions, args, tools, history)
 		if err != nil {
 			return nil, err
 		}

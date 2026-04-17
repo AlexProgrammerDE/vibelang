@@ -7,8 +7,9 @@
 - Uses indentation-sensitive, Python-like syntax for variables, expressions, loops, and conditionals.
 - Treats every `def` body as natural-language instructions instead of imperative code.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
+- Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
-- Exposes a small standard library, including filesystem tools, to AI execution.
+- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, and environment helpers.
 - Runs against local model servers, with first-class support for Ollama and `llama.cpp`.
 
 ## Quick Start
@@ -51,13 +52,23 @@ print(forecast)
 Inline prompts work anywhere a full expression makes sense in statement position:
 
 ```python
-path = "tmp/pi.txt"
+workspace = join_path([cwd(), "tmp"])
+make_dir(workspace)
+path = join_path([workspace, "pi.txt"])
 digits = * return the first 5 digits of pi as a string without explanation.
 
 if * check whether ${path} already exists:
     * delete the file at ${path}.
 else:
     * write ${digits} to the file at ${path}.
+```
+
+Prompt interpolation is expression-aware, not just name-aware:
+
+```python
+def explain_file(path: string, digits: string) -> string:
+    Write one sentence about ${basename(path)} inside ${dirname(path)}.
+    Mention that ${digits} has ${len(digits)} characters.
 ```
 
 ## Project Layout

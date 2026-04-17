@@ -27,9 +27,10 @@ type ToolSpec struct {
 }
 
 type builtinFunction struct {
-	name string
-	call func(context.Context, *Interpreter, []any) (any, error)
-	tool *ToolSpec
+	name       string
+	call       func(context.Context, *Interpreter, []any) (any, error)
+	tool       *ToolSpec
+	promptSafe bool
 }
 
 func (b *builtinFunction) Name() string {

@@ -132,3 +132,31 @@ else:
 		t.Fatalf("unexpected then prompt\nwant: %q\ngot:  %q", wantThenPrompt, thenPrompt.Text)
 	}
 }
+
+func TestParseListLiteralWithMultipleStrings(t *testing.T) {
+	source := `values = ["alpha", "beta", "gamma"]
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	assign, ok := program.Statements[0].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[0])
+	}
+
+	list, ok := assign.Value.(*ast.ListLiteral)
+	if !ok {
+		t.Fatalf("expected ListLiteral, got %T", assign.Value)
+	}
+
+	if len(list.Elements) != 3 {
+		t.Fatalf("expected 3 list elements, got %d", len(list.Elements))
+	}
+}
