@@ -189,6 +189,25 @@ finally:
     print("cleanup complete")
 ```
 
+For cleanup that should happen whenever a block exits, use `defer`:
+
+```python
+for name in ["alpha", "beta"]:
+    path = join_path([cwd(), name + ".tmp"])
+    defer delete_file(path)
+    write_file(path, name)
+    print("created " + basename(path))
+```
+
+The runtime also ships URL and JSON HTTP helpers for deterministic request plumbing:
+
+```python
+parsed = url_parse("https://ada.example:8443/products/view?tag=lang&tag=ai&sort=desc#hero")
+rebuilt = url_build({"scheme": parsed["scheme"], "host": parsed["host"], "path": parsed["path"], "query": parsed["query"], "fragment": parsed["fragment"]})
+print(parsed["hostname"])
+print(rebuilt)
+```
+
 ## 4. Run It
 
 With Ollama:

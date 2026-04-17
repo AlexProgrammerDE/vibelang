@@ -58,6 +58,8 @@ jobs:
           go run ./cmd/vibelang --check examples/tool_chain.vibe
           go run ./cmd/vibelang --check examples/pi_file.vibe
           go run ./cmd/vibelang --check examples/stdlib.vibe
+          go run ./cmd/vibelang --check examples/defer.vibe
+          go run ./cmd/vibelang --check examples/url_tools.vibe
           go run ./cmd/vibelang --check examples/modules/main.vibe
           go run ./cmd/vibelang --check examples/ops.vibe
           go run ./cmd/vibelang --check examples/concurrency.vibe

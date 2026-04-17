@@ -811,6 +811,82 @@ print(snapshot["tasks_spawned_total"] >= 1)
 	}
 }
 
+func TestInterpreterRunsDeferredExpressionsInLIFOOrder(t *testing.T) {
+	source := `print("start")
+defer print("first cleanup")
+defer print("second cleanup")
+print("done")
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "start\ndone\nsecond cleanup\nfirst cleanup\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterRunsDeferredExpressionsOnErrorAndCapturesValues(t *testing.T) {
+	source := `name = "Ada"
+defer print(name)
+name = "Grace"
+fail("boom")
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if err.Error() != "boom" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stdout.String() != "Ada\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Ada\n", stdout.String())
+	}
+}
+
+func TestInterpreterRunsDeferredExpressionsOnContinue(t *testing.T) {
+	source := `for value in [1, 2]:
+    defer print("cleanup " + str(value))
+    if value == 1:
+        continue
+    print("body " + str(value))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "cleanup 1\nbody 2\ncleanup 2\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterSupportsChannelSelect(t *testing.T) {
 	source := `first = channel(1)
 second = channel(1)
@@ -841,6 +917,76 @@ print(timeout_packet["timeout"])
 
 	if stdout.String() != "true\nbeta\nfalse\ntrue\ntrue\n" {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "true\nbeta\nfalse\ntrue\ntrue\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsURLAndJSONHTTPHelpers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer request.Body.Close()
+
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, fmt.Sprintf(
+			`{"ok":true,"request":{"method":%q,"content_type":%q,"body":%s}}`,
+			request.Method,
+			request.Header.Get("Content-Type"),
+			string(body),
+		))
+	}))
+	defer server.Close()
+
+	source := fmt.Sprintf(`parsed = url_parse("https://ada.example:8443/products/view?tag=lang&tag=ai&sort=desc#hero")
+encoded = query_encode({"tag": ["lang", "ai"], "sort": "desc"})
+decoded = query_decode("tag=lang&tag=ai&sort=desc")
+rebuilt = url_build({"scheme": parsed["scheme"], "host": parsed["host"], "path": parsed["path"], "query": parsed["query"], "fragment": parsed["fragment"]})
+response = http_request_json(%q, method="POST", body={"name": "Ada", "roles": ["builder", "tester"]})
+
+print(parsed["hostname"])
+print(parsed["port"])
+print(parsed["query"]["tag"][1])
+print(encoded)
+print(decoded["sort"])
+print(rebuilt)
+print(response["status"])
+print(response["json"]["ok"])
+print(response["json"]["request"]["method"])
+print(response["json"]["request"]["content_type"])
+print(response["json"]["request"]["body"]["name"])
+print(response["json"]["request"]["body"]["roles"][1])
+`, server.URL)
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"ada.example",
+		"8443",
+		"ai",
+		"sort=desc&tag=lang&tag=ai",
+		"desc",
+		"https://ada.example:8443/products/view?sort=desc&tag=lang&tag=ai#hero",
+		"200",
+		"true",
+		"POST",
+		"application/json",
+		"Ada",
+		"tester",
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
 

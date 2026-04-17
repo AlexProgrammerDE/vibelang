@@ -15,6 +15,7 @@
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
 - Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
+- Supports block-scoped `defer` expressions for LIFO cleanup on normal exit, `break`, `continue`, and errors.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
@@ -249,6 +250,28 @@ finally:
     print("cleanup complete")
 ```
 
+Block-scoped cleanup is available without wrapping everything in `try` / `finally`:
+
+```python
+for name in ["alpha", "beta"]:
+    path = join_path([cwd(), name + ".tmp"])
+    defer delete_file(path)
+    write_file(path, name)
+    print("created " + basename(path))
+```
+
+URL helpers and JSON-first HTTP helpers keep API plumbing deterministic:
+
+```python
+parsed = url_parse("https://ada.example:8443/products/view?tag=lang&tag=ai&sort=desc#hero")
+rebuilt = url_build({"scheme": parsed["scheme"], "host": parsed["host"], "path": parsed["path"], "query": parsed["query"], "fragment": parsed["fragment"]})
+response = http_request_json("https://example.com/api", method="POST", body={"name": "Ada"})
+
+print(parsed["hostname"])
+print(rebuilt)
+print(response["json"])
+```
+
 ## Project Layout
 
 - `cmd/vibelang`: CLI entrypoint.
@@ -266,10 +289,10 @@ The deterministic runtime now covers more of the boring work that AI functions s
 
 - Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`
 - Data: `json_parse`, `json_pretty`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `sorted`, `unique`, `sum`, `min`, `max`
-- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
+- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
-- Network: `http_request`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
+- Network: `http_request`, `http_request_json`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
 - Services: `http_serve`, `http_server_stop`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`

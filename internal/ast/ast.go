@@ -94,6 +94,14 @@ type ExprStmt struct {
 func (*ExprStmt) stmtNode()         {}
 func (s *ExprStmt) LineNumber() int { return s.Line }
 
+type DeferStmt struct {
+	Line int
+	Expr Expr
+}
+
+func (*DeferStmt) stmtNode()         {}
+func (s *DeferStmt) LineNumber() int { return s.Line }
+
 type IfStmt struct {
 	Line      int
 	Condition Expr

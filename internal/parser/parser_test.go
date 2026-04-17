@@ -135,6 +135,32 @@ finally:
 	}
 }
 
+func TestParseDeferStatement(t *testing.T) {
+	source := `defer print("cleanup")
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	deferStmt, ok := program.Statements[0].(*ast.DeferStmt)
+	if !ok {
+		t.Fatalf("expected DeferStmt, got %T", program.Statements[0])
+	}
+
+	if deferStmt.Line != 1 {
+		t.Fatalf("expected defer line 1, got %d", deferStmt.Line)
+	}
+	if _, ok := deferStmt.Expr.(*ast.CallExpr); !ok {
+		t.Fatalf("expected deferred call expression, got %T", deferStmt.Expr)
+	}
+}
+
 func TestParseInlinePromptsPreserveRawText(t *testing.T) {
 	source := `path = "notes.txt"
 digits = * find the first 5 digits of pi, then return them as a string.

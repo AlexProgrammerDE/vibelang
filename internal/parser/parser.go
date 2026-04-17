@@ -107,6 +107,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return p.parseWhile(indent)
 	case lexer.TokenTry:
 		return p.parseTry(indent)
+	case lexer.TokenDefer:
+		return p.parseDefer()
 	case lexer.TokenFor:
 		return p.parseFor(indent)
 	case lexer.TokenBreak:
@@ -264,6 +266,23 @@ func (p *Parser) parseSimpleStatement() (ast.Stmt, error) {
 		return nil, ep.errorf("unexpected token %q", ep.peek().Lexeme)
 	}
 	return &ast.ExprStmt{Line: line.Number, Expr: target}, nil
+}
+
+func (p *Parser) parseDefer() (ast.Stmt, error) {
+	line := p.lines[p.index]
+	if len(line.Tokens) < 2 {
+		return nil, fmt.Errorf("line %d: defer requires an expression", line.Number)
+	}
+
+	p.index++
+	expr, err := parseExpressionTokens(line.Tokens[1:])
+	if err != nil {
+		return nil, err
+	}
+	return &ast.DeferStmt{
+		Line: line.Number,
+		Expr: expr,
+	}, nil
 }
 
 func (p *Parser) parseFunction(indent int) (ast.Stmt, error) {

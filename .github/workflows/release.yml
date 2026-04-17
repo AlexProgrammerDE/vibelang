@@ -57,6 +57,8 @@ jobs:
           go run ./cmd/vibelang --check examples/tool_chain.vibe
           go run ./cmd/vibelang --check examples/pi_file.vibe
           go run ./cmd/vibelang --check examples/stdlib.vibe
+          go run ./cmd/vibelang --check examples/defer.vibe
+          go run ./cmd/vibelang --check examples/url_tools.vibe
           go run ./cmd/vibelang --check examples/modules/main.vibe
           go run ./cmd/vibelang --check examples/ops.vibe
           go run ./cmd/vibelang --check examples/concurrency.vibe
@@ -66,19 +68,11 @@ jobs:
           go run ./cmd/vibelang --check examples/directives.vibe
           go run ./cmd/vibelang --check examples/error_handling.vibe
 
-      - name: Install GoReleaser
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          temp_dir="$(mktemp -d)"
-          gh release download \
-            --repo goreleaser/goreleaser \
-            --pattern 'goreleaser_Linux_x86_64.tar.gz' \
-            --dir "$temp_dir"
-          tar -xzf "$temp_dir/goreleaser_Linux_x86_64.tar.gz" -C "$temp_dir" goreleaser
-          install -m 0755 "$temp_dir/goreleaser" "$(go env GOPATH)/bin/goreleaser"
-
       - name: Build and publish release artifacts
-        run: "$(go env GOPATH)/bin/goreleaser release --clean"
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

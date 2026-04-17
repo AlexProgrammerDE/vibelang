@@ -119,6 +119,7 @@ Supported statements:
 - assignment: `name = expression`
 - index assignment: `items[0] = "updated"`
 - member assignment: `config.name = "updated"`
+- deferred cleanup: `defer expression`
 - expression statement: `print(value)`
 - conditional: `if ...:`, `elif ...:`, `else:`
 - pattern matching: `match subject:` with one or more `case pattern:` clauses
@@ -144,6 +145,22 @@ Notes:
 - `finally` is optional when `except` is present.
 - `except` may bind the error text into one local name, for example `except err:`.
 - Builtin failures, tool failures, and model/runtime errors raised inside the guarded block all flow through the same mechanism.
+
+### Defer Statement
+
+```python
+path = join_path([cwd(), "notes.txt"])
+defer delete_file(path)
+write_file(path, "temporary")
+```
+
+Notes:
+
+- `defer expression` registers one expression to run when the current block exits.
+- Deferred expressions run in last-in, first-out order.
+- They run on normal completion, `break`, `continue`, and errors.
+- Deferred expressions capture the current visible non-function values at registration time, so later mutations do not silently change cleanup targets.
+- A deferred expression error is reported after all remaining deferred expressions have run.
 
 ### Match Statement
 
@@ -270,6 +287,10 @@ The runtime coerces model outputs to the declared return type when possible.
 - `base64_decode(text)`: decode base64 text
 - `url_encode(text)`: percent-encode URL query text
 - `url_decode(text)`: decode percent-encoded URL query text
+- `query_encode(query)`: encode a dict of query parameters into a stable query string
+- `query_decode(query)`: decode a query string into strings and lists
+- `url_parse(raw_url)`: parse a URL into scheme, host, hostname, port, path, query, and fragment fields
+- `url_build(parts)`: build a URL string from parsed parts
 - `sha256(text)`: return the hex SHA-256 digest of a string
 - `regex_match(pattern, text)`: test whether a regex matches
 - `regex_find_all(pattern, text)`: return regex matches as a list
@@ -291,6 +312,7 @@ The runtime coerces model outputs to the declared return type when possible.
 - `unix_time()`: current Unix timestamp
 - `sleep(milliseconds)`: pause execution
 - `http_request(url, method="GET", body="", headers={}, timeout_ms=10000)`: perform an HTTP request
+- `http_request_json(url, method="GET", body=none, headers={}, timeout_ms=10000)`: send an optional JSON body and decode the JSON response into a `json` field
 - `run_process(command, args=[], dir="", input="", env={}, timeout_ms=30000)`: execute a local process
 - `socket_open(address, network="tcp", timeout_ms=5000)`: open a socket and return a handle
 - `socket_write(handle, data)`: write to an open socket

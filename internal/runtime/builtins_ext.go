@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -67,6 +68,29 @@ func registerExtendedBuiltins(interpreter *Interpreter) {
 		defaults: map[string]any{
 			"method":     "GET",
 			"body":       "",
+			"headers":    map[string]any{},
+			"timeout_ms": int64(10000),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "http_request_json",
+		call: builtinHTTPRequestJSON,
+		tool: &ToolSpec{
+			Name:       "http_request_json",
+			ReturnType: ast.TypeRef{Expr: "dict"},
+			Body:       "Perform an HTTP request with an optional JSON body and decode the JSON response into a json field.",
+			Params: []ast.Param{
+				{Name: "url", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "method", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"GET\""},
+				{Name: "body", DefaultText: "none"},
+				{Name: "headers", Type: ast.TypeRef{Expr: "dict[string, string]"}, DefaultText: "{}"},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "10000"},
+			},
+		},
+		defaults: map[string]any{
+			"method":     "GET",
+			"body":       nil,
 			"headers":    map[string]any{},
 			"timeout_ms": int64(10000),
 		},
@@ -331,6 +355,62 @@ func builtinHTTPRequest(ctx context.Context, _ *Interpreter, args []any) (any, e
 		return nil, err
 	}
 
+	return doHTTPRequest(ctx, url, method, body, headers, timeoutMS)
+}
+
+func builtinHTTPRequestJSON(ctx context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("http_request_json", args, 5); err != nil {
+		return nil, err
+	}
+	url, err := requireString("http_request_json", args[0], "url")
+	if err != nil {
+		return nil, err
+	}
+	method, err := requireString("http_request_json", args[1], "method")
+	if err != nil {
+		return nil, err
+	}
+	headers, err := requireStringMap("http_request_json", args[3], "headers")
+	if err != nil {
+		return nil, err
+	}
+	timeoutMS, err := requireInt("http_request_json", args[4], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+
+	body := ""
+	if args[2] != nil {
+		encoded, err := json.Marshal(normalizeJSONValue(args[2]))
+		if err != nil {
+			return nil, err
+		}
+		body = string(encoded)
+		if _, ok := headers["Content-Type"]; !ok {
+			headers["Content-Type"] = "application/json"
+		}
+	}
+
+	response, err := doHTTPRequest(ctx, url, method, body, headers, timeoutMS)
+	if err != nil {
+		return nil, err
+	}
+
+	responseBody, _ := response["body"].(string)
+	if strings.TrimSpace(responseBody) == "" {
+		response["json"] = nil
+		return response, nil
+	}
+
+	var decoded any
+	if err := json.Unmarshal([]byte(responseBody), &decoded); err != nil {
+		return nil, fmt.Errorf("http_request_json expected a JSON response body: %w", err)
+	}
+	response["json"] = normalizeJSONValue(decoded)
+	return response, nil
+}
+
+func doHTTPRequest(ctx context.Context, url, method, body string, headers map[string]string, timeoutMS int64) (map[string]any, error) {
 	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" {
 		method = http.MethodGet

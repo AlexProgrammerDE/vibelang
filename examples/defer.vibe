@@ -1,0 +1,10 @@
+paths = []
+
+for name in ["alpha", "beta"]:
+    path = join_path([cwd(), name + ".tmp"])
+    defer delete_file(path)
+    paths = append(paths, path)
+    write_file(path, name)
+    print("created " + basename(path))
+
+print(json(paths))

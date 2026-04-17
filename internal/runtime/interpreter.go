@@ -58,6 +58,12 @@ type aiCallFrame struct {
 	Signature string
 }
 
+type deferredExpression struct {
+	Line int
+	Expr ast.Expr
+	Env  *Environment
+}
+
 const (
 	signalNone controlSignal = iota
 	signalBreak
@@ -140,16 +146,23 @@ func (i *Interpreter) executeProgram(ctx context.Context, program *ast.Program, 
 }
 
 func (i *Interpreter) executeBlock(ctx context.Context, env *Environment, statements []ast.Stmt, moduleDir string) (controlSignal, error) {
+	deferred := make([]deferredExpression, 0)
+
 	for _, statement := range statements {
+		if node, ok := statement.(*ast.DeferStmt); ok {
+			deferred = append(deferred, captureDeferredExpression(env, node))
+			continue
+		}
+
 		signal, err := i.executeStatement(ctx, env, statement, moduleDir)
 		if err != nil {
-			return signalNone, err
+			return i.runDeferredExpressions(ctx, deferred, signalNone, err)
 		}
 		if signal != signalNone {
-			return signal, nil
+			return i.runDeferredExpressions(ctx, deferred, signal, nil)
 		}
 	}
-	return signalNone, nil
+	return i.runDeferredExpressions(ctx, deferred, signalNone, nil)
 }
 
 func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, statement ast.Stmt, moduleDir string) (controlSignal, error) {
@@ -199,6 +212,8 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 	case *ast.ExprStmt:
 		_, err := i.evaluateExpression(ctx, env, node.Expr)
 		return signalNone, err
+	case *ast.DeferStmt:
+		return signalNone, fmt.Errorf("defer may only be registered by the enclosing block")
 	case *ast.IfStmt:
 		condition, err := i.evaluateCondition(ctx, env, node.Condition)
 		if err != nil {
@@ -284,6 +299,37 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 	default:
 		return signalNone, fmt.Errorf("unsupported statement type %T", statement)
 	}
+}
+
+func captureDeferredExpression(env *Environment, statement *ast.DeferStmt) deferredExpression {
+	snapshot := NewEnvironment(env)
+	for name, value := range env.SnapshotValues() {
+		snapshot.Define(name, value)
+	}
+	return deferredExpression{
+		Line: statement.Line,
+		Expr: statement.Expr,
+		Env:  snapshot,
+	}
+}
+
+func (i *Interpreter) runDeferredExpressions(ctx context.Context, deferred []deferredExpression, priorSignal controlSignal, priorErr error) (controlSignal, error) {
+	err := priorErr
+	for index := len(deferred) - 1; index >= 0; index-- {
+		expr := deferred[index]
+		if _, deferErr := i.evaluateExpression(ctx, expr.Env, expr.Expr); deferErr != nil {
+			message := fmt.Sprintf("deferred expression on line %d failed: %v", expr.Line, deferErr)
+			if err == nil {
+				err = fmt.Errorf("%s", message)
+			} else {
+				err = fmt.Errorf("%v; %s", err, message)
+			}
+		}
+	}
+	if err != nil {
+		return signalNone, err
+	}
+	return priorSignal, nil
 }
 
 func (i *Interpreter) executeTryStatement(ctx context.Context, env *Environment, statement *ast.TryStmt, moduleDir string) (controlSignal, error) {

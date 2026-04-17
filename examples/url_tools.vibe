@@ -1,0 +1,9 @@
+parsed = url_parse("https://ada.example:8443/products/view?tag=lang&tag=ai&sort=desc#hero")
+encoded = query_encode({"tag": ["lang", "ai"], "sort": "desc"})
+decoded = query_decode("tag=lang&tag=ai&sort=desc")
+rebuilt = url_build({"scheme": parsed["scheme"], "host": parsed["host"], "path": parsed["path"], "query": parsed["query"], "fragment": parsed["fragment"]})
+
+print(parsed["hostname"])
+print(encoded)
+print(decoded["sort"])
+print(rebuilt)
