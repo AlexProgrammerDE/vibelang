@@ -1,0 +1,10 @@
+def classify_temperature(celsius: int) -> string:
+    Return one of these labels for the temperature: freezing, cold, mild, warm, hot.
+
+def write_brief(city: string, celsius: int) -> string:
+    First call classify_temperature to label the temperature.
+    Then write one short briefing sentence for someone visiting ${city}.
+
+city = "Lisbon"
+brief = write_brief(city, 27)
+print(brief)

@@ -1,0 +1,157 @@
+# Reference
+
+## File Execution Model
+
+- A `.vibe` file is parsed into an AST and executed top to bottom.
+- `def` statements register AI-backed functions.
+- Inline `* prompt` expressions execute AI work directly at the statement site.
+- Regular statements are executed by the interpreter.
+- AI function calls are delegated to the configured local model client.
+
+## Syntax
+
+### Function Definition
+
+```python
+def name(param: type, other: type) -> return_type:
+    Plain-language instructions.
+    These lines are preserved as raw text.
+```
+
+Notes:
+
+- Function bodies are raw text, not statements.
+- `${name}` style placeholders are interpolated from bound arguments before the prompt is sent to the model.
+- Parameter and return types are optional. Omitted types default to `any`.
+
+### Inline Prompt Expression
+
+```python
+result = * return the first 5 digits of pi as a string.
+```
+
+```python
+if * check whether ${path} exists:
+    * delete the file at ${path}.
+```
+
+Notes:
+
+- `* prompt` is a full expression form when it appears as the whole right-hand side of an assignment, the whole condition of `if`/`elif`/`while`, the iterable in `for ... in`, or a standalone expression statement.
+- Inline prompts receive the current non-function variables as input.
+- `${name}` interpolation also works inside inline prompts.
+- Conditions coerce the returned value to `bool`. Other inline prompts default to `any`.
+
+### Statements
+
+Supported statements:
+
+- assignment: `name = expression`
+- index assignment: `items[0] = "updated"`
+- expression statement: `print(value)`
+- conditional: `if ...:`, `elif ...:`, `else:`
+- loop: `while ...:` and `for name in iterable:`
+- loop control: `break`, `continue`
+- `pass`
+
+### Expressions
+
+Supported expressions:
+
+- identifiers
+- inline prompt expressions: `* do something with ${name}`
+- literals: strings, integers, floats, `true`, `false`, `none`
+- list literals: `[1, 2, 3]`
+- dict literals: `{"name": "ada"}`
+- arithmetic: `+`, `-`, `*`, `/`, `%`
+- comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`
+- boolean operators: `and`, `or`, `not`
+- calls: `fn(arg1, arg2)`
+- indexing: `items[0]`, `record["name"]`
+
+## Types
+
+Built-in type names:
+
+- `any`
+- `string`
+- `int`
+- `float`
+- `bool`
+- `none`
+- `list`
+- `dict`
+- `list[T]`
+- `dict[T]`
+- `dict[K, V]`
+
+The runtime coerces model outputs to the declared return type when possible.
+
+## Builtins
+
+- `print(...)`: write values to stdout
+- `len(value)`: length of a string, list, or dict
+- `str(value)`: convert to string
+- `int(value)`: convert to integer
+- `float(value)`: convert to float
+- `bool(value)`: convert to boolean
+- `type(value)`: return the runtime type name
+- `range(stop)` / `range(start, stop)` / `range(start, stop, step)`
+- `append(list, value)`: return a new list with the appended value
+- `keys(dict)`: return sorted dict keys
+- `values(dict)`: return dict values in sorted-key order
+- `json(value)`: JSON-encode a value
+- `cwd()`: return the current working directory
+- `file_exists(path)`: return whether a path exists
+- `read_file(path)`: read a UTF-8 text file
+- `write_file(path, content)`: write a UTF-8 text file and return the path
+- `delete_file(path)`: delete a file and return whether anything was removed
+
+## AI Function Protocol
+
+Each AI-backed function is executed in a loop. The model must emit one JSON object in one of these forms:
+
+```json
+{"action":"return","value":42}
+```
+
+```json
+{"action":"call","call":{"name":"helper_name","arguments":{"value":21}}}
+```
+
+Behavior:
+
+- `return` ends the function.
+- `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
+- Helper calls are limited by `--max-steps`.
+- Nested AI execution is limited by `--max-depth`.
+
+## CLI
+
+```bash
+vibelang [flags] <file.vibe>
+```
+
+Flags:
+
+- `--provider`: `ollama` or `llamacpp`
+- `--endpoint`: model server URL
+- `--model`: model name passed to the backend
+- `--temperature`: sampling temperature
+- `--max-tokens`: max tokens per AI step
+- `--max-steps`: max helper-call steps per AI function
+- `--max-depth`: max nested AI call depth
+- `--timeout`: HTTP timeout
+- `--trace`: print runtime trace to stderr
+
+Environment variable equivalents:
+
+- `VIBE_PROVIDER`
+- `VIBE_ENDPOINT`
+- `VIBE_MODEL`
+- `VIBE_TEMPERATURE`
+- `VIBE_MAX_TOKENS`
+- `VIBE_MAX_STEPS`
+- `VIBE_MAX_DEPTH`
+- `VIBE_TIMEOUT`
+- `VIBE_TRACE`

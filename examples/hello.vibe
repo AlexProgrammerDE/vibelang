@@ -1,0 +1,7 @@
+def summarize_weather(city: string, celsius: int) -> string:
+    Write one crisp sentence about the weather in ${city}.
+    Mention whether ${celsius} suggests a cold, mild, or warm day.
+
+city = "Berlin"
+forecast = summarize_weather(city, 18)
+print(forecast)

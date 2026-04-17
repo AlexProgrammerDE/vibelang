@@ -1,0 +1,10 @@
+path = "tmp/pi.txt"
+digits = * return the first 5 digits of pi as a string without explanation.
+
+if * check whether ${path} already exists:
+    * delete the file at ${path}.
+else:
+    * write ${digits} to the file at ${path}.
+
+print(file_exists(path))
+print(read_file(path))

@@ -1,0 +1,139 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"time"
+
+	"vibelang/internal/model"
+	"vibelang/internal/parser"
+	"vibelang/internal/runtime"
+)
+
+func main() {
+	provider := flag.String("provider", envOr("VIBE_PROVIDER", "ollama"), "local model provider: ollama or llamacpp")
+	endpoint := flag.String("endpoint", envOr("VIBE_ENDPOINT", ""), "provider endpoint URL")
+	modelName := flag.String("model", envOr("VIBE_MODEL", "gemma4"), "local model name")
+	temperature := flag.Float64("temperature", envFloat("VIBE_TEMPERATURE", 0.2), "model temperature")
+	maxTokens := flag.Int("max-tokens", envInt("VIBE_MAX_TOKENS", 768), "maximum tokens to generate per AI step")
+	maxSteps := flag.Int("max-steps", envInt("VIBE_MAX_STEPS", 8), "maximum helper-call steps per AI function")
+	maxDepth := flag.Int("max-depth", envInt("VIBE_MAX_DEPTH", 8), "maximum nested AI function call depth")
+	timeout := flag.Duration("timeout", envDuration("VIBE_TIMEOUT", 2*time.Minute), "HTTP timeout for model requests")
+	trace := flag.Bool("trace", envBool("VIBE_TRACE", false), "write AI execution trace to stderr")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [flags] <file.vibe>\n\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(2)
+	}
+
+	sourcePath := flag.Arg(0)
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		fatalf("read %s: %v", sourcePath, err)
+	}
+
+	program, err := parser.ParseSource(string(source))
+	if err != nil {
+		fatalf("parse %s: %v", sourcePath, err)
+	}
+
+	client, err := model.NewClient(model.Config{
+		Provider:    *provider,
+		Endpoint:    *endpoint,
+		Model:       *modelName,
+		Temperature: *temperature,
+		MaxTokens:   *maxTokens,
+		Timeout:     *timeout,
+	})
+	if err != nil {
+		fatalf("configure model client: %v", err)
+	}
+
+	var traceWriter *os.File
+	if *trace {
+		traceWriter = os.Stderr
+	}
+
+	interpreter := runtime.NewInterpreter(runtime.Config{
+		Model:        client,
+		Stdout:       os.Stdout,
+		Trace:        traceWriter,
+		MaxAISteps:   *maxSteps,
+		MaxCallDepth: *maxDepth,
+	})
+
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		fatalf("run %s: %v", sourcePath, err)
+	}
+}
+
+func envOr(name, fallback string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func envInt(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	var parsed int
+	if _, err := fmt.Sscanf(value, "%d", &parsed); err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envFloat(name string, fallback float64) float64 {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	var parsed float64
+	if _, err := fmt.Sscanf(value, "%f", &parsed); err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envDuration(name string, fallback time.Duration) time.Duration {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envBool(name string, fallback bool) bool {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "TRUE", "True", "yes", "YES", "Yes":
+		return true
+	case "0", "false", "FALSE", "False", "no", "NO", "No":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
+}
