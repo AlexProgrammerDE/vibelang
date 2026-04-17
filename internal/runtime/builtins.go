@@ -23,6 +23,24 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("bool", builtinBool, "bool", "Convert a value to a bool.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("type", builtinType, "string", "Return the runtime type name for a value.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, &builtinFunction{
+		name: "tool_catalog",
+		call: builtinToolCatalog,
+		tool: &ToolSpec{
+			Name:       "tool_catalog",
+			ReturnType: ast.TypeRef{Expr: "list[dict]"},
+			Body:       "Return the available helper functions, optionally filtered by a name prefix.",
+			Params: []ast.Param{
+				{Name: "prefix", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"\""},
+			},
+		},
+		defaults: map[string]any{
+			"prefix": "",
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
+	registerBuiltin(interpreter, promptToolBuiltin("tool_describe", builtinToolDescribe, "dict", "Return one helper function description by name, including params, return_type, and body.", ast.Param{Name: "name", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, &builtinFunction{
 		name: "range",
 		call: builtinRange,
 		tool: &ToolSpec{
@@ -177,6 +195,32 @@ func builtinType(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	return typeName(args[0]), nil
 }
 
+func builtinToolCatalog(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("tool_catalog", args, 1); err != nil {
+		return nil, err
+	}
+	prefix, err := requireString("tool_catalog", args[0], "prefix")
+	if err != nil {
+		return nil, err
+	}
+	return interpreter.toolCatalog(prefix), nil
+}
+
+func builtinToolDescribe(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("tool_describe", args, 1); err != nil {
+		return nil, err
+	}
+	name, err := requireString("tool_describe", args[0], "name")
+	if err != nil {
+		return nil, err
+	}
+	detail, ok := interpreter.toolDescription(name)
+	if !ok {
+		return nil, fmt.Errorf("unknown tool %q", name)
+	}
+	return detail, nil
+}
+
 func builtinRange(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if len(args) < 1 || len(args) > 3 {
 		return nil, fmt.Errorf("range expects 1 to 3 arguments, got %d", len(args))
@@ -222,6 +266,72 @@ func builtinRange(_ context.Context, _ *Interpreter, args []any) (any, error) {
 		}
 	}
 	return result, nil
+}
+
+func (i *Interpreter) toolCatalog(prefix string) []any {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	names := make([]string, 0, len(i.tools))
+	for name := range i.tools {
+		if prefix != "" && !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	catalog := make([]any, 0, len(names))
+	for _, name := range names {
+		if detail, ok := i.toolDescriptionLocked(name); ok {
+			catalog = append(catalog, detail)
+		}
+	}
+	return catalog
+}
+
+func (i *Interpreter) toolDescription(name string) (map[string]any, bool) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.toolDescriptionLocked(name)
+}
+
+func (i *Interpreter) toolDescriptionLocked(name string) (map[string]any, bool) {
+	callable, ok := i.tools[name]
+	if !ok {
+		return nil, false
+	}
+	spec := callable.ToolSpec()
+	params := make([]any, 0, len(spec.Params))
+	for _, param := range spec.Params {
+		entry := map[string]any{
+			"name": param.Name,
+			"type": param.Type.String(),
+		}
+		if param.DefaultText != "" {
+			entry["has_default"] = true
+			entry["default"] = param.DefaultText
+		} else {
+			entry["has_default"] = false
+		}
+		params = append(params, entry)
+	}
+
+	_, promptSafe := i.promptHelpers[name]
+	kind := "builtin"
+	if _, ok := callable.(*AIFunction); ok {
+		kind = "ai"
+	}
+
+	return map[string]any{
+		"name":        spec.Name,
+		"kind":        kind,
+		"prompt_safe": promptSafe,
+		"signature":   fmt.Sprintf("%s(%s) -> %s", spec.Name, formatParams(spec.Params), spec.ReturnType.String()),
+		"params":      params,
+		"return_type": spec.ReturnType.String(),
+		"body":        spec.Body,
+	}, true
 }
 
 func builtinAppend(_ context.Context, _ *Interpreter, args []any) (any, error) {

@@ -1,0 +1,19 @@
+import "std/web" as web
+
+updates = channel(3)
+channel_send(updates, sse_event("booting", event="status", id="evt-1"))
+channel_send(updates, sse_event(json({"progress": 50}), event="progress", id="evt-2"))
+channel_send(updates, "done")
+channel_close(updates)
+
+def handle(request: dict) -> dict:
+    Call web.respond_sse_channel with the stream ${updates} and status 200.
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/events")
+
+print(response["status"])
+print(response["headers"]["Content-Type"])
+print(response["body"])
+
+http_server_stop(server["handle"])

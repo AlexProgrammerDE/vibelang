@@ -257,6 +257,8 @@ Notes:
 - `float(value)`: convert to float
 - `bool(value)`: convert to boolean
 - `type(value)`: return the runtime type name
+- `tool_catalog(prefix="")`: return the available helper functions, optionally filtered by name prefix
+- `tool_describe(name)`: return one helper function description with params, signature, return type, and body text
 - `range(stop)` / `range(start, stop)` / `range(start, stop, step)`
 - `append(list, value)`: return a new list with the appended value
 - `keys(dict)`: return sorted dict keys
@@ -334,6 +336,7 @@ Notes:
 - `sleep(milliseconds)`: pause execution
 - `http_request(url, method="GET", body="", headers={}, timeout_ms=10000)`: perform an HTTP request
 - `http_request_json(url, method="GET", body=none, headers={}, timeout_ms=10000)`: send an optional JSON body and decode the JSON response into a `json` field
+- `sse_event(data, event="message", id="", retry_ms=0)`: build one Server-Sent Event record
 - `run_process(command, args=[], dir="", input="", env={}, timeout_ms=30000)`: execute a local process
 - `socket_listen(address, network="tcp")`: start listening for socket connections and return `{handle, address}`
 - `socket_accept(listener, timeout_ms=-1)`: accept the next connection and return `{ok, timeout, handle, local_addr, remote_addr}`
@@ -374,9 +377,17 @@ Notes:
 - `cache_clear()`: clear cached AI results and return the number of removed entries
 - `pi`, `e`: math constants exposed as top-level values
 
+HTTP handler response notes:
+
+- Plain values become `200 text/plain` responses.
+- Response dicts may use exactly one of `body`, `html`, `json`, `sse`, or `sse_channel`.
+- `sse` accepts one SSE event, a list of SSE events, or plain strings that become `data:` frames.
+- `sse_channel` accepts a channel handle whose values are streamed as SSE frames until the channel closes or the client disconnects.
+- SSE responses default to `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache`, and `Connection: keep-alive`.
+
 Bundled modules:
 
-- `std/web`: AI helpers for HTML rendering, component fragments, app shells, and typed HTML or JSON response construction
+- `std/web`: AI helpers for HTML rendering, component fragments, app shells, typed HTML or JSON response construction, and SSE wrappers
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
 

@@ -198,6 +198,14 @@ summary = ai.summarize_payload({"route": "/demo", "status": 200})
 print(summary)
 ```
 
+The helper catalog is also available to deterministic code:
+
+```python
+json_tools = tool_catalog(prefix="json_")
+print(json_tools[0]["name"])
+print(tool_describe("http_request")["params"][0]["name"])
+```
+
 The runtime also has native concurrency primitives:
 
 ```python
@@ -216,6 +224,18 @@ second = channel(1)
 channel_send(second, "ready")
 packet = channel_select([first, second], timeout_ms=10)
 print(packet["value"])
+```
+
+If a handler needs incremental browser updates, it can return an SSE channel stream:
+
+```python
+updates = channel(2)
+channel_send(updates, sse_event("booting", event="status", id="evt-1"))
+channel_send(updates, "done")
+channel_close(updates)
+
+def stream(request: dict) -> dict:
+    Return exactly {"status": 200, "sse_channel": updates}.
 ```
 
 Path routing can stay deterministic even when the final response is AI-generated:
@@ -314,6 +334,8 @@ When you only want to check parsing or module resolution, use `--check`:
 - Read the [reference](reference.md) for language syntax and builtins.
 - Run [examples/modules/main.vibe](../examples/modules/main.vibe) to see imports and module-backed AI functions.
 - Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
+- Run [examples/tool_catalog.vibe](../examples/tool_catalog.vibe) to inspect the live helper catalog.
+- Run [examples/http_sse.vibe](../examples/http_sse.vibe) to see channel-backed SSE responses.
 - Run [examples/match.vibe](../examples/match.vibe) to see structural pattern matching with captures.
 - Run [examples/slices.vibe](../examples/slices.vibe) to see slicing on strings and lists.
 - Run [examples/comprehensions.vibe](../examples/comprehensions.vibe) to see list and dict comprehensions.

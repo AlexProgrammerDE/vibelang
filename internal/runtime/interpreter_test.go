@@ -1464,7 +1464,8 @@ http_server_stop(server["handle"])
 }
 
 func TestFormatHTTPHandlerResponseNormalizesContentTypeHeader(t *testing.T) {
-	status, headers, body, err := formatHTTPHandlerResponse(map[string]any{
+	interpreter := NewInterpreter(Config{})
+	response, err := interpreter.formatHTTPHandlerResponse(map[string]any{
 		"headers": map[string]any{
 			"content-type": "text/plain; charset=utf-8",
 		},
@@ -1474,17 +1475,50 @@ func TestFormatHTTPHandlerResponseNormalizesContentTypeHeader(t *testing.T) {
 		t.Fatalf("formatHTTPHandlerResponse returned error: %v", err)
 	}
 
-	if status != http.StatusOK {
-		t.Fatalf("unexpected status %d", status)
+	if response.Status != http.StatusOK {
+		t.Fatalf("unexpected status %d", response.Status)
 	}
-	if body != "<p>hello</p>" {
-		t.Fatalf("unexpected body %q", body)
+	if response.Body != "<p>hello</p>" {
+		t.Fatalf("unexpected body %q", response.Body)
 	}
-	if len(headers) != 1 {
-		t.Fatalf("expected exactly 1 header after normalization, got %#v", headers)
+	if len(response.Headers) != 1 {
+		t.Fatalf("expected exactly 1 header after normalization, got %#v", response.Headers)
 	}
-	if headers["Content-Type"] != "text/plain; charset=utf-8" {
-		t.Fatalf("unexpected content type header %#v", headers)
+	if response.Headers["Content-Type"] != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type header %#v", response.Headers)
+	}
+}
+
+func TestFormatHTTPHandlerResponseSupportsSSEBatches(t *testing.T) {
+	interpreter := NewInterpreter(Config{})
+	response, err := interpreter.formatHTTPHandlerResponse(map[string]any{
+		"status": 202,
+		"sse": []any{
+			map[string]any{"event": "status", "data": "booting", "id": "evt-1"},
+			"done",
+		},
+	})
+	if err != nil {
+		t.Fatalf("formatHTTPHandlerResponse returned error: %v", err)
+	}
+
+	if response.Status != http.StatusAccepted {
+		t.Fatalf("unexpected status %d", response.Status)
+	}
+	if response.SSE == nil {
+		t.Fatalf("expected SSE payload")
+	}
+	if response.Headers["Content-Type"] != "text/event-stream; charset=utf-8" {
+		t.Fatalf("unexpected content type header %#v", response.Headers)
+	}
+	if len(response.SSE.Events) != 2 {
+		t.Fatalf("expected 2 SSE events, got %d", len(response.SSE.Events))
+	}
+	if response.SSE.Events[0].Event != "status" || response.SSE.Events[0].Data != "booting" || response.SSE.Events[0].ID != "evt-1" {
+		t.Fatalf("unexpected first SSE event %#v", response.SSE.Events[0])
+	}
+	if response.SSE.Events[1].Data != "done" {
+		t.Fatalf("unexpected second SSE event %#v", response.SSE.Events[1])
 	}
 }
 
@@ -1535,6 +1569,79 @@ http_server_stop(server["handle"])
 	}
 	if !strings.Contains(client.prompts[1], `"id": "ada"`) || !strings.Contains(client.prompts[1], `"/users/:id"`) {
 		t.Fatalf("route handler prompt did not include extracted params:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsSSEHTTPResponsesFromChannels(t *testing.T) {
+	source := `stream = channel(2)
+channel_send(stream, sse_event("booting", event="status", id="evt-1"))
+channel_send(stream, "done")
+channel_close(stream)
+
+def handle(request: dict) -> dict:
+    Return exactly {"status": 202, "sse_channel": "channel_1"}.
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/events")
+print(response["status"])
+print(response["headers"]["Content-Type"])
+print(response["body"])
+http_server_stop(server["handle"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":{"status":202,"sse_channel":"channel_1"}}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "202\ntext/event-stream; charset=utf-8\nevent: status\nid: evt-1\ndata: booting\n\ndata: done\n\n\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterSupportsToolCatalogBuiltins(t *testing.T) {
+	source := `tools = tool_catalog(prefix="json_")
+print(len(tools))
+print(tools[0]["name"])
+print(tools[1]["name"])
+
+detail = tool_describe("http_request")
+print(detail["name"])
+print(detail["return_type"])
+print(detail["params"][0]["name"])
+print(detail["kind"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "2\njson_parse\njson_pretty\nhttp_request\ndict\nurl\nbuiltin\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
 

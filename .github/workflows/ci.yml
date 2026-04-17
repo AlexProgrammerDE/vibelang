@@ -81,3 +81,13 @@ jobs:
             printf 'got:\n%s\n' "$output"
             exit 1
           fi
+
+      - name: Run deterministic tool catalog example
+        run: |
+          output="$(go run ./cmd/vibelang examples/tool_catalog.vibe)"
+          expected=$'2\njson_parse\njson_pretty\nhttp_request\ndict\nurl\nbuiltin\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected tool_catalog.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi

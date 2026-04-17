@@ -55,3 +55,17 @@ def respond_json(payload: any, status: int = 200) -> dict{status: int, headers: 
     - status set to ${status}
     - headers set to {"content-type": "application/json; charset=utf-8"}
     - json set to ${payload}
+
+def respond_sse(events: list, status: int = 200, headers: dict[string, string] = {}) -> dict{status: int, headers: dict[string, string], sse: list}:
+    @temperature 0
+    Return exactly one SSE response object with:
+    - status set to ${status}
+    - headers set to ${headers}
+    - sse set to ${events}
+
+def respond_sse_channel(stream: string, status: int = 200, headers: dict[string, string] = {}) -> dict{status: int, headers: dict[string, string], sse_channel: string}:
+    @temperature 0
+    Return exactly one SSE streaming response object with:
+    - status set to ${status}
+    - headers set to ${headers}
+    - sse_channel set to ${stream}

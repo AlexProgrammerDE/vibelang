@@ -26,7 +26,8 @@
 - Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
-- Starts AI-backed HTTP servers, including ordered route tables for multi-endpoint apps.
+- Starts AI-backed HTTP servers, including ordered route tables and Server-Sent Event streaming backed by native channel handles.
+- Exposes deterministic tool introspection so programs can inspect the live helper catalog through `tool_catalog` and `tool_describe`.
 - Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
@@ -252,6 +253,14 @@ print(packet["channel"] == slow)
 print(packet["value"])
 ```
 
+Programs can inspect the helper surface deterministically:
+
+```python
+json_tools = tool_catalog(prefix="json_")
+print(json_tools[0]["name"])
+print(tool_describe("http_request")["params"][0]["name"])
+```
+
 Explicit AI caching is useful for expensive deterministic helpers:
 
 ```python
@@ -277,6 +286,23 @@ def handle(request: dict) -> dict:
 server = http_serve("127.0.0.1:0", handle)
 response = http_request("http://" + server["address"] + "/hello")
 print(response["status"])
+http_server_stop(server["handle"])
+```
+
+SSE handlers can stream channel-backed event feeds:
+
+```python
+updates = channel(2)
+channel_send(updates, sse_event("booting", event="status", id="evt-1"))
+channel_send(updates, "done")
+channel_close(updates)
+
+def handle(request: dict) -> dict:
+    Return exactly {"status": 200, "sse_channel": updates}.
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/events")
+print(response["headers"]["Content-Type"])
 http_server_stop(server["handle"])
 ```
 
@@ -369,14 +395,15 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
-- Network: `http_request`, `http_request_json`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
+- Network: `http_request`, `http_request_json`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
 - Services: `route_match`, `http_serve`, `http_serve_routes`, `http_server_stop`
+- Runtime introspection: `tool_catalog`, `tool_describe`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
 
 Bundled `std` modules currently include:
 
-- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, typed HTML responses, and JSON response construction via `respond_app_shell` and `respond_json`
+- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, typed HTML responses, JSON response construction, and SSE wrappers via `respond_app_shell`, `respond_json`, `respond_sse`, and `respond_sse_channel`
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 
 ## Documentation

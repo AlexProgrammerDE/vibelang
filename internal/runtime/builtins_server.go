@@ -23,8 +23,49 @@ type httpRoute struct {
 	handler Callable
 }
 
+type httpResponsePayload struct {
+	Status  int
+	Headers map[string]string
+	Body    string
+	SSE     *httpSSEPayload
+}
+
+type httpSSEPayload struct {
+	Events  []sseEvent
+	Channel *channelHandle
+}
+
+type sseEvent struct {
+	Event   string
+	Data    string
+	ID      string
+	RetryMS int64
+}
+
 func registerHTTPServerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("route_match", builtinRouteMatch, "dict{matched: bool, params: dict[string, string]}", "Match a request path against a route pattern like /users/:id or /assets/*path and return matched plus any extracted params.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "request_path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "sse_event",
+		call: builtinSSEEvent,
+		tool: &ToolSpec{
+			Name:       "sse_event",
+			ReturnType: ast.TypeRef{Expr: "dict{data: string, event: string, id: string, retry_ms: int}"},
+			Body:       "Build one Server-Sent Event record with text data and optional event metadata.",
+			Params: []ast.Param{
+				{Name: "data", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "event", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"message\""},
+				{Name: "id", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"\""},
+				{Name: "retry_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "0"},
+			},
+		},
+		defaults: map[string]any{
+			"event":    "message",
+			"id":       "",
+			"retry_ms": int64(0),
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "http_serve",
 		call: builtinHTTPServe,
@@ -103,6 +144,35 @@ func builtinRouteMatch(_ context.Context, _ *Interpreter, args []any) (any, erro
 	return map[string]any{
 		"matched": matched,
 		"params":  params,
+	}, nil
+}
+
+func builtinSSEEvent(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("sse_event", args, 4); err != nil {
+		return nil, err
+	}
+	data, err := requireString("sse_event", args[0], "data")
+	if err != nil {
+		return nil, err
+	}
+	event, err := requireString("sse_event", args[1], "event")
+	if err != nil {
+		return nil, err
+	}
+	id, err := requireString("sse_event", args[2], "id")
+	if err != nil {
+		return nil, err
+	}
+	retryMS, err := requireInt("sse_event", args[3], "retry_ms")
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"data":     data,
+		"event":    event,
+		"id":       id,
+		"retry_ms": retryMS,
 	}, nil
 }
 
@@ -242,13 +312,13 @@ func (i *Interpreter) serveAIHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 
-	status, headers, body, err := formatHTTPHandlerResponse(result)
+	response, err := i.formatHTTPHandlerResponse(result)
 	if err != nil {
 		i.incrementMetric("http_request_errors_total", 1)
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	i.writeHTTPResponse(writer, status, headers, body)
+	i.writeFormattedHTTPResponse(request.Context(), writer, response)
 }
 
 func (i *Interpreter) serveAIHTTPRoutes(writer http.ResponseWriter, request *http.Request, routes []httpRoute, fallback Callable) {
@@ -280,13 +350,13 @@ func (i *Interpreter) serveAIHTTPRoutes(writer http.ResponseWriter, request *htt
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		status, headers, body, err := formatHTTPHandlerResponse(result)
+		response, err := i.formatHTTPHandlerResponse(result)
 		if err != nil {
 			i.incrementMetric("http_request_errors_total", 1)
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		i.writeHTTPResponse(writer, status, headers, body)
+		i.writeFormattedHTTPResponse(request.Context(), writer, response)
 		return
 	}
 
@@ -298,13 +368,13 @@ func (i *Interpreter) serveAIHTTPRoutes(writer http.ResponseWriter, request *htt
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		status, headers, body, err := formatHTTPHandlerResponse(result)
+		response, err := i.formatHTTPHandlerResponse(result)
 		if err != nil {
 			i.incrementMetric("http_request_errors_total", 1)
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		i.writeHTTPResponse(writer, status, headers, body)
+		i.writeFormattedHTTPResponse(request.Context(), writer, response)
 		return
 	}
 
@@ -331,6 +401,67 @@ func (i *Interpreter) writeHTTPResponse(writer http.ResponseWriter, status int, 
 		i.incrementMetric("http_request_errors_total", 1)
 		return
 	}
+	i.incrementMetric("http_responses_total", 1)
+}
+
+func (i *Interpreter) writeFormattedHTTPResponse(ctx context.Context, writer http.ResponseWriter, response httpResponsePayload) {
+	if response.SSE != nil {
+		i.writeHTTPEventStream(ctx, writer, response)
+		return
+	}
+	i.writeHTTPResponse(writer, response.Status, response.Headers, response.Body)
+}
+
+func (i *Interpreter) writeHTTPEventStream(ctx context.Context, writer http.ResponseWriter, response httpResponsePayload) {
+	for key, value := range response.Headers {
+		writer.Header().Set(key, value)
+	}
+	writer.WriteHeader(response.Status)
+
+	flusher, _ := writer.(http.Flusher)
+	flush := func() {
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	for _, event := range response.SSE.Events {
+		if err := writeSSEEvent(writer, event); err != nil {
+			i.incrementMetric("http_request_errors_total", 1)
+			return
+		}
+		i.incrementMetric("http_sse_events_total", 1)
+		flush()
+	}
+
+	if response.SSE.Channel != nil {
+		i.incrementMetric("http_sse_streams_total", 1)
+		for {
+			select {
+			case <-ctx.Done():
+				i.incrementMetric("http_responses_total", 1)
+				return
+			case value, ok := <-response.SSE.Channel.ch:
+				if !ok {
+					i.incrementMetric("http_responses_total", 1)
+					return
+				}
+				event, err := parseSSEEvent(cloneValue(value))
+				if err != nil {
+					i.incrementMetric("http_request_errors_total", 1)
+					i.tracef("http SSE stream encode failed: %v", err)
+					return
+				}
+				if err := writeSSEEvent(writer, event); err != nil {
+					i.incrementMetric("http_request_errors_total", 1)
+					return
+				}
+				i.incrementMetric("http_sse_events_total", 1)
+				flush()
+			}
+		}
+	}
+
 	i.incrementMetric("http_responses_total", 1)
 }
 
@@ -456,13 +587,13 @@ func buildHTTPRequestPayload(request *http.Request) (map[string]any, error) {
 	}, nil
 }
 
-func formatHTTPHandlerResponse(value any) (int, map[string]string, string, error) {
+func (i *Interpreter) formatHTTPHandlerResponse(value any) (httpResponsePayload, error) {
 	if responseMap, ok := asMap(value); ok {
 		status := http.StatusOK
 		if rawStatus, ok := responseMap["status"]; ok {
 			parsedStatus, parsedOK := asInt(rawStatus)
 			if !parsedOK {
-				return 0, nil, "", fmt.Errorf("http handler response field status must be an integer")
+				return httpResponsePayload{}, fmt.Errorf("http handler response field status must be an integer")
 			}
 			status = int(parsedStatus)
 		}
@@ -471,29 +602,172 @@ func formatHTTPHandlerResponse(value any) (int, map[string]string, string, error
 		if rawHeaders, ok := responseMap["headers"]; ok {
 			parsedHeaders, err := requireStringMap("http handler response", rawHeaders, "headers")
 			if err != nil {
-				return 0, nil, "", err
+				return httpResponsePayload{}, err
 			}
 			headers = canonicalizeHTTPHeaderMap(parsedHeaders)
 		}
 
+		bodyModes := 0
+		for _, key := range []string{"body", "html", "json", "sse", "sse_channel"} {
+			if _, ok := responseMap[key]; ok {
+				bodyModes++
+			}
+		}
+		if bodyModes > 1 {
+			return httpResponsePayload{}, fmt.Errorf("http handler response may only include one of body, html, json, sse, or sse_channel")
+		}
+
 		if rawBody, ok := responseMap["body"]; ok {
-			return status, headers, stringify(rawBody), nil
+			return httpResponsePayload{Status: status, Headers: headers, Body: stringify(rawBody)}, nil
 		}
 		if rawHTML, ok := responseMap["html"]; ok {
 			setDefaultHTTPHeader(headers, "Content-Type", "text/html; charset=utf-8")
-			return status, headers, stringify(rawHTML), nil
+			return httpResponsePayload{Status: status, Headers: headers, Body: stringify(rawHTML)}, nil
 		}
 		if rawJSON, ok := responseMap["json"]; ok {
 			setDefaultHTTPHeader(headers, "Content-Type", "application/json")
 			encoded, err := json.Marshal(normalizeJSONValue(rawJSON))
 			if err != nil {
-				return 0, nil, "", err
+				return httpResponsePayload{}, err
 			}
-			return status, headers, string(encoded), nil
+			return httpResponsePayload{Status: status, Headers: headers, Body: string(encoded)}, nil
+		}
+		if rawSSE, ok := responseMap["sse"]; ok {
+			events, err := parseSSEEvents(rawSSE)
+			if err != nil {
+				return httpResponsePayload{}, err
+			}
+			applySSEHeaders(headers)
+			return httpResponsePayload{
+				Status:  status,
+				Headers: headers,
+				SSE: &httpSSEPayload{
+					Events: events,
+				},
+			}, nil
+		}
+		if rawChannel, ok := responseMap["sse_channel"]; ok {
+			channelHandle, err := requireString("http handler response", rawChannel, "sse_channel")
+			if err != nil {
+				return httpResponsePayload{}, err
+			}
+			channel, err := i.lookupChannel(channelHandle)
+			if err != nil {
+				return httpResponsePayload{}, err
+			}
+			applySSEHeaders(headers)
+			return httpResponsePayload{
+				Status:  status,
+				Headers: headers,
+				SSE: &httpSSEPayload{
+					Channel: channel,
+				},
+			}, nil
 		}
 	}
 
-	return http.StatusOK, map[string]string{"Content-Type": "text/plain; charset=utf-8"}, stringify(value), nil
+	return httpResponsePayload{
+		Status:  http.StatusOK,
+		Headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"},
+		Body:    stringify(value),
+	}, nil
+}
+
+func parseSSEEvents(value any) ([]sseEvent, error) {
+	if items, ok := asList(value); ok {
+		events := make([]sseEvent, 0, len(items))
+		for index, item := range items {
+			event, err := parseSSEEvent(item)
+			if err != nil {
+				return nil, fmt.Errorf("http handler response sse[%d]: %w", index, err)
+			}
+			events = append(events, event)
+		}
+		return events, nil
+	}
+
+	event, err := parseSSEEvent(value)
+	if err != nil {
+		return nil, fmt.Errorf("http handler response sse: %w", err)
+	}
+	return []sseEvent{event}, nil
+}
+
+func parseSSEEvent(value any) (sseEvent, error) {
+	switch typed := value.(type) {
+	case string:
+		return sseEvent{Data: typed}, nil
+	case map[string]any:
+		rawData, ok := typed["data"]
+		if !ok {
+			return sseEvent{}, fmt.Errorf("event dict must include data")
+		}
+		event := sseEvent{Data: stringify(rawData)}
+		if rawEvent, ok := typed["event"]; ok {
+			parsedEvent, err := requireString("sse event", rawEvent, "event")
+			if err != nil {
+				return sseEvent{}, err
+			}
+			event.Event = parsedEvent
+		}
+		if rawID, ok := typed["id"]; ok {
+			parsedID, err := requireString("sse event", rawID, "id")
+			if err != nil {
+				return sseEvent{}, err
+			}
+			event.ID = parsedID
+		}
+		if rawRetry, ok := typed["retry_ms"]; ok {
+			retryMS, err := requireInt("sse event", rawRetry, "retry_ms")
+			if err != nil {
+				return sseEvent{}, err
+			}
+			event.RetryMS = retryMS
+		}
+		return event, nil
+	default:
+		return sseEvent{}, fmt.Errorf("expected an SSE string or dict, got %s", typeName(value))
+	}
+}
+
+func applySSEHeaders(headers map[string]string) {
+	setDefaultHTTPHeader(headers, "Content-Type", "text/event-stream; charset=utf-8")
+	setDefaultHTTPHeader(headers, "Cache-Control", "no-cache")
+	setDefaultHTTPHeader(headers, "Connection", "keep-alive")
+}
+
+func writeSSEEvent(writer io.Writer, event sseEvent) error {
+	if event.Event != "" {
+		if _, err := io.WriteString(writer, "event: "+sanitizeSSEField(event.Event)+"\n"); err != nil {
+			return err
+		}
+	}
+	if event.ID != "" {
+		if _, err := io.WriteString(writer, "id: "+sanitizeSSEField(event.ID)+"\n"); err != nil {
+			return err
+		}
+	}
+	if event.RetryMS > 0 {
+		if _, err := io.WriteString(writer, fmt.Sprintf("retry: %d\n", event.RetryMS)); err != nil {
+			return err
+		}
+	}
+
+	lines := strings.Split(strings.ReplaceAll(event.Data, "\r\n", "\n"), "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	for _, line := range lines {
+		if _, err := io.WriteString(writer, "data: "+sanitizeSSEField(line)+"\n"); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(writer, "\n")
+	return err
+}
+
+func sanitizeSSEField(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "\r", ""), "\n", "")
 }
 
 func routeMatch(pattern, requestPath string) (bool, map[string]any) {

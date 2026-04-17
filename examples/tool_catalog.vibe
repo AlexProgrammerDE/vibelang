@@ -1,0 +1,10 @@
+json_tools = tool_catalog(prefix="json_")
+print(len(json_tools))
+print(json_tools[0]["name"])
+print(json_tools[1]["name"])
+
+request_tool = tool_describe("http_request")
+print(request_tool["name"])
+print(request_tool["return_type"])
+print(request_tool["params"][0]["name"])
+print(request_tool["kind"])
