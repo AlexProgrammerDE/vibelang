@@ -1355,6 +1355,81 @@ http_server_stop(server["handle"])
 	}
 }
 
+func TestFormatHTTPHandlerResponseNormalizesContentTypeHeader(t *testing.T) {
+	status, headers, body, err := formatHTTPHandlerResponse(map[string]any{
+		"headers": map[string]any{
+			"content-type": "text/plain; charset=utf-8",
+		},
+		"html": "<p>hello</p>",
+	})
+	if err != nil {
+		t.Fatalf("formatHTTPHandlerResponse returned error: %v", err)
+	}
+
+	if status != http.StatusOK {
+		t.Fatalf("unexpected status %d", status)
+	}
+	if body != "<p>hello</p>" {
+		t.Fatalf("unexpected body %q", body)
+	}
+	if len(headers) != 1 {
+		t.Fatalf("expected exactly 1 header after normalization, got %#v", headers)
+	}
+	if headers["Content-Type"] != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type header %#v", headers)
+	}
+}
+
+func TestInterpreterSupportsHTTPRouteServer(t *testing.T) {
+	source := `def home(request: dict) -> dict:
+    Return a dict with status 200, json {"route": "home", "path": request["path"]}.
+
+def user(request: dict) -> dict:
+    Return a dict with status 200, json {"route": "user", "id": request["params"]["id"], "method": request["method"]}.
+
+routes = [{"pattern": "/", "handler": home}, {"pattern": "/users/:id", "methods": ["GET"], "handler": user}]
+
+server = http_serve_routes("127.0.0.1:0", routes)
+root = http_request_json("http://" + server["address"] + "/")
+profile = http_request_json("http://" + server["address"] + "/users/ada")
+print(root["json"]["route"])
+print(profile["json"]["id"])
+print(profile["json"]["method"])
+http_server_stop(server["handle"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":{"status":200,"json":{"route":"home","path":"/"}}}`,
+			`{"action":"return","value":{"status":200,"json":{"route":"user","id":"ada","method":"GET"}}}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "home\nada\nGET\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "home\nada\nGET\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], `"id": "ada"`) || !strings.Contains(client.prompts[1], `"/users/:id"`) {
+		t.Fatalf("route handler prompt did not include extracted params:\n%s", client.prompts[1])
+	}
+}
+
 func TestInterpreterSupportsURLImports(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -1819,6 +1894,40 @@ print(socket_close(handle))
 	}
 
 	want := "pong\ntrue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterProvidesSocketListenerStdlib(t *testing.T) {
+	source := `listener = socket_listen("127.0.0.1:0")
+accept_task = spawn(socket_accept, args=[listener["handle"]])
+client = socket_open(listener["address"])
+accepted = await_task(accept_task)
+socket_write(client, "ping")
+print(accepted["ok"])
+print(socket_read(accepted["handle"]))
+socket_write(accepted["handle"], "pong")
+print(socket_read(client))
+print(socket_remote_addr(accepted["handle"]) != "")
+print(socket_local_addr(client) != "")
+print(socket_close(accepted["handle"]))
+print(socket_close(client))
+print(socket_listener_close(listener["handle"]))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "true\nping\npong\ntrue\ntrue\ntrue\ntrue\ntrue\n"
 	if stdout.String() != want {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}

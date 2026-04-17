@@ -26,30 +26,31 @@ type Config struct {
 }
 
 type Interpreter struct {
-	mu            sync.RWMutex
-	model         model.Client
-	stdout        io.Writer
-	stderr        io.Writer
-	trace         io.Writer
-	maxAISteps    int
-	maxCallDepth  int
-	globals       *Environment
-	functions     map[string]*AIFunction
-	tools         map[string]ToolCallable
-	promptHelpers map[string]Callable
-	promptCache   map[string]*compiledPrompt
-	moduleCache   map[string]*loadedModule
-	aiCache       map[string]any
-	loadingModule map[string]bool
-	sockets       map[string]*socketHandle
-	tasks         map[string]*taskHandle
-	channels      map[string]*channelHandle
-	mutexes       map[string]*mutexHandle
-	waitGroups    map[string]*safeWaitGroup
-	servers       map[string]*httpServerHandle
-	metrics       map[string]int64
-	nextResource  int64
-	telemetry     *telemetryManager
+	mu              sync.RWMutex
+	model           model.Client
+	stdout          io.Writer
+	stderr          io.Writer
+	trace           io.Writer
+	maxAISteps      int
+	maxCallDepth    int
+	globals         *Environment
+	functions       map[string]*AIFunction
+	tools           map[string]ToolCallable
+	promptHelpers   map[string]Callable
+	promptCache     map[string]*compiledPrompt
+	moduleCache     map[string]*loadedModule
+	aiCache         map[string]any
+	loadingModule   map[string]bool
+	sockets         map[string]*socketHandle
+	socketListeners map[string]*socketListenerHandle
+	tasks           map[string]*taskHandle
+	channels        map[string]*channelHandle
+	mutexes         map[string]*mutexHandle
+	waitGroups      map[string]*safeWaitGroup
+	servers         map[string]*httpServerHandle
+	metrics         map[string]int64
+	nextResource    int64
+	telemetry       *telemetryManager
 }
 
 type controlSignal int
@@ -86,28 +87,29 @@ func NewInterpreter(config Config) *Interpreter {
 	}
 
 	interpreter := &Interpreter{
-		model:         config.Model,
-		stdout:        config.Stdout,
-		stderr:        config.Stderr,
-		trace:         config.Trace,
-		maxAISteps:    config.MaxAISteps,
-		maxCallDepth:  config.MaxCallDepth,
-		globals:       NewEnvironment(nil),
-		functions:     make(map[string]*AIFunction),
-		tools:         make(map[string]ToolCallable),
-		promptHelpers: make(map[string]Callable),
-		promptCache:   make(map[string]*compiledPrompt),
-		moduleCache:   make(map[string]*loadedModule),
-		aiCache:       make(map[string]any),
-		loadingModule: make(map[string]bool),
-		sockets:       make(map[string]*socketHandle),
-		tasks:         make(map[string]*taskHandle),
-		channels:      make(map[string]*channelHandle),
-		mutexes:       make(map[string]*mutexHandle),
-		waitGroups:    make(map[string]*safeWaitGroup),
-		servers:       make(map[string]*httpServerHandle),
-		metrics:       make(map[string]int64),
-		telemetry:     newTelemetryManager(config.Stderr),
+		model:           config.Model,
+		stdout:          config.Stdout,
+		stderr:          config.Stderr,
+		trace:           config.Trace,
+		maxAISteps:      config.MaxAISteps,
+		maxCallDepth:    config.MaxCallDepth,
+		globals:         NewEnvironment(nil),
+		functions:       make(map[string]*AIFunction),
+		tools:           make(map[string]ToolCallable),
+		promptHelpers:   make(map[string]Callable),
+		promptCache:     make(map[string]*compiledPrompt),
+		moduleCache:     make(map[string]*loadedModule),
+		aiCache:         make(map[string]any),
+		loadingModule:   make(map[string]bool),
+		sockets:         make(map[string]*socketHandle),
+		socketListeners: make(map[string]*socketListenerHandle),
+		tasks:           make(map[string]*taskHandle),
+		channels:        make(map[string]*channelHandle),
+		mutexes:         make(map[string]*mutexHandle),
+		waitGroups:      make(map[string]*safeWaitGroup),
+		servers:         make(map[string]*httpServerHandle),
+		metrics:         make(map[string]int64),
+		telemetry:       newTelemetryManager(config.Stderr),
 	}
 
 	registerBuiltins(interpreter)

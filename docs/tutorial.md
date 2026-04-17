@@ -302,7 +302,9 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
+- Run [examples/http_routes.vibe](../examples/http_routes.vibe) to see ordered route tables and route params for AI-backed servers.
 - Run [examples/routes.vibe](../examples/routes.vibe) to validate deterministic route matching without needing a model.
+- Run [examples/socket_listener.vibe](../examples/socket_listener.vibe) to see listener-side TCP sockets built on native Go networking.
 - Run [examples/structured_outputs.vibe](../examples/structured_outputs.vibe) to see typed AI return values, optional fields, nested records, and tuples.
 - Run [examples/directives.vibe](../examples/directives.vibe) to see per-function AI directives.
 - Run [examples/error_handling.vibe](../examples/error_handling.vibe) to see `try` / `except` / `finally` and text helpers.

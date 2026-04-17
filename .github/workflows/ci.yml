@@ -49,6 +49,13 @@ jobs:
       - name: Build packages
         run: go build ./...
 
+      - name: Validate GoReleaser config
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
       - name: Parse example programs
         run: |
           find std examples -name '*.vibe' -print | sort | while read -r file; do

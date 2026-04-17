@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/textproto"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,6 +125,23 @@ func registerExtendedBuiltins(interpreter *Interpreter) {
 	})
 
 	registerBuiltin(interpreter, &builtinFunction{
+		name: "socket_listen",
+		call: builtinSocketListen,
+		tool: &ToolSpec{
+			Name:       "socket_listen",
+			ReturnType: ast.TypeRef{Expr: "dict{handle: string, address: string}"},
+			Body:       "Start listening for socket connections and return a dict with the listener handle and bound address.",
+			Params: []ast.Param{
+				{Name: "address", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "network", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"tcp\""},
+			},
+		},
+		defaults: map[string]any{
+			"network": "tcp",
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
 		name: "socket_open",
 		call: builtinSocketOpen,
 		tool: &ToolSpec{
@@ -139,6 +157,23 @@ func registerExtendedBuiltins(interpreter *Interpreter) {
 		defaults: map[string]any{
 			"network":    "tcp",
 			"timeout_ms": int64(5000),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "socket_accept",
+		call: builtinSocketAccept,
+		tool: &ToolSpec{
+			Name:       "socket_accept",
+			ReturnType: ast.TypeRef{Expr: "dict{ok: bool, timeout: bool, handle: optional[string], local_addr: string, remote_addr: string}"},
+			Body:       "Accept the next connection from a socket listener handle. Return ok plus a new socket handle or timeout information.",
+			Params: []ast.Param{
+				{Name: "listener", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "-1"},
+			},
+		},
+		defaults: map[string]any{
+			"timeout_ms": int64(-1),
 		},
 		bindArgs: true,
 	})
@@ -162,6 +197,9 @@ func registerExtendedBuiltins(interpreter *Interpreter) {
 		},
 		bindArgs: true,
 	})
+	registerBuiltin(interpreter, toolBuiltin("socket_local_addr", builtinSocketLocalAddr, "string", "Return the local address for an open socket handle.", ast.Param{Name: "handle", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, toolBuiltin("socket_remote_addr", builtinSocketRemoteAddr, "string", "Return the remote address for an open socket handle.", ast.Param{Name: "handle", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, toolBuiltin("socket_listener_close", builtinSocketListenerClose, "bool", "Close a socket listener handle. Return true when a listener was closed and false when the handle was already gone.", ast.Param{Name: "listener", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("socket_close", builtinSocketClose, "bool", "Close an open socket handle. Return true when a socket was closed and false when the handle was already gone.", ast.Param{Name: "handle", Type: ast.TypeRef{Expr: "string"}}))
 	registerConcurrencyBuiltins(interpreter)
 	registerHTTPServerBuiltins(interpreter)
@@ -386,9 +424,8 @@ func builtinHTTPRequestJSON(ctx context.Context, _ *Interpreter, args []any) (an
 			return nil, err
 		}
 		body = string(encoded)
-		if _, ok := headers["Content-Type"]; !ok {
-			headers["Content-Type"] = "application/json"
-		}
+		headers = canonicalizeHTTPHeaderMap(headers)
+		setDefaultHTTPHeader(headers, "Content-Type", "application/json")
 	}
 
 	response, err := doHTTPRequest(ctx, url, method, body, headers, timeoutMS)
@@ -516,6 +553,35 @@ func builtinRunProcess(ctx context.Context, _ *Interpreter, args []any) (any, er
 	}, nil
 }
 
+func builtinSocketListen(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("socket_listen", args, 2); err != nil {
+		return nil, err
+	}
+	address, err := requireString("socket_listen", args[0], "address")
+	if err != nil {
+		return nil, err
+	}
+	network, err := requireString("socket_listen", args[1], "network")
+	if err != nil {
+		return nil, err
+	}
+
+	listener, err := net.Listen(network, address)
+	if err != nil {
+		return nil, err
+	}
+	handle := interpreter.nextHandle("socket_listener")
+	interpreter.storeSocketListener(handle, &socketListenerHandle{
+		listener: listener,
+		address:  listener.Addr().String(),
+	})
+	interpreter.incrementMetric("socket_listeners_started_total", 1)
+	return map[string]any{
+		"handle":  handle,
+		"address": listener.Addr().String(),
+	}, nil
+}
+
 func builtinSocketOpen(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("socket_open", args, 3); err != nil {
 		return nil, err
@@ -540,6 +606,61 @@ func builtinSocketOpen(_ context.Context, interpreter *Interpreter, args []any) 
 	handle := interpreter.nextHandle("socket")
 	interpreter.storeSocket(handle, &socketHandle{conn: conn})
 	return handle, nil
+}
+
+func builtinSocketAccept(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("socket_accept", args, 2); err != nil {
+		return nil, err
+	}
+	listenerHandle, err := requireString("socket_accept", args[0], "listener")
+	if err != nil {
+		return nil, err
+	}
+	timeoutMS, err := requireInt("socket_accept", args[1], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+
+	handle, err := interpreter.lookupSocketListener(listenerHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	if timeoutMS >= 0 {
+		deadlineSetter, ok := handle.listener.(interface{ SetDeadline(time.Time) error })
+		if !ok {
+			return nil, fmt.Errorf("socket_accept timeouts require a listener that supports deadlines")
+		}
+		if err := deadlineSetter.SetDeadline(time.Now().Add(time.Duration(timeoutMS) * time.Millisecond)); err != nil {
+			return nil, err
+		}
+		defer deadlineSetter.SetDeadline(time.Time{})
+	}
+
+	conn, err := handle.listener.Accept()
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return map[string]any{
+				"ok":          false,
+				"timeout":     true,
+				"handle":      nil,
+				"local_addr":  "",
+				"remote_addr": "",
+			}, nil
+		}
+		return nil, err
+	}
+
+	connHandle := interpreter.nextHandle("socket")
+	interpreter.storeSocket(connHandle, &socketHandle{conn: conn})
+	interpreter.incrementMetric("socket_connections_accepted_total", 1)
+	return map[string]any{
+		"ok":          true,
+		"timeout":     false,
+		"handle":      connHandle,
+		"local_addr":  conn.LocalAddr().String(),
+		"remote_addr": conn.RemoteAddr().String(),
+	}, nil
 }
 
 func builtinSocketWrite(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
@@ -623,6 +744,55 @@ func builtinSocketClose(_ context.Context, interpreter *Interpreter, args []any)
 	return true, nil
 }
 
+func builtinSocketLocalAddr(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("socket_local_addr", args, 1); err != nil {
+		return nil, err
+	}
+	handleID, err := requireString("socket_local_addr", args[0], "handle")
+	if err != nil {
+		return nil, err
+	}
+	handle, err := interpreter.lookupSocket(handleID)
+	if err != nil {
+		return nil, err
+	}
+	return handle.conn.LocalAddr().String(), nil
+}
+
+func builtinSocketRemoteAddr(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("socket_remote_addr", args, 1); err != nil {
+		return nil, err
+	}
+	handleID, err := requireString("socket_remote_addr", args[0], "handle")
+	if err != nil {
+		return nil, err
+	}
+	handle, err := interpreter.lookupSocket(handleID)
+	if err != nil {
+		return nil, err
+	}
+	return handle.conn.RemoteAddr().String(), nil
+}
+
+func builtinSocketListenerClose(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("socket_listener_close", args, 1); err != nil {
+		return nil, err
+	}
+	handleID, err := requireString("socket_listener_close", args[0], "listener")
+	if err != nil {
+		return nil, err
+	}
+	handle, ok := interpreter.closeSocketListener(handleID)
+	if !ok {
+		return false, nil
+	}
+	if err := handle.listener.Close(); err != nil {
+		return nil, err
+	}
+	interpreter.incrementMetric("socket_listeners_stopped_total", 1)
+	return true, nil
+}
+
 func requireFloat(name string, value any, param string) (float64, error) {
 	number, ok := asFloat(value)
 	if !ok {
@@ -649,6 +819,32 @@ func requireStringMap(name string, value any, param string) (map[string]string, 
 		result[key] = stringify(item)
 	}
 	return result, nil
+}
+
+func canonicalizeHTTPHeaderMap(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return map[string]string{}
+	}
+	normalized := make(map[string]string, len(headers))
+	for key, value := range headers {
+		key = textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(key))
+		if key == "" {
+			continue
+		}
+		normalized[key] = value
+	}
+	return normalized
+}
+
+func setDefaultHTTPHeader(headers map[string]string, key, value string) {
+	key = textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(key))
+	if key == "" {
+		return
+	}
+	if _, exists := headers[key]; exists {
+		return
+	}
+	headers[key] = value
 }
 
 func flattenHTTPHeaders(headers http.Header) map[string]any {

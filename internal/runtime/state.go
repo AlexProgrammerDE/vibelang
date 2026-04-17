@@ -267,6 +267,11 @@ type httpServerHandle struct {
 	address  string
 }
 
+type socketListenerHandle struct {
+	listener net.Listener
+	address  string
+}
+
 func (i *Interpreter) registerFunction(function *AIFunction) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -318,6 +323,33 @@ func (i *Interpreter) closeSocket(handleID string) (*socketHandle, bool) {
 		return nil, false
 	}
 	delete(i.sockets, handleID)
+	return handle, true
+}
+
+func (i *Interpreter) storeSocketListener(handleID string, handle *socketListenerHandle) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.socketListeners[handleID] = handle
+}
+
+func (i *Interpreter) lookupSocketListener(handleID string) (*socketListenerHandle, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	handle, ok := i.socketListeners[handleID]
+	if !ok {
+		return nil, fmt.Errorf("unknown socket listener handle %q", handleID)
+	}
+	return handle, nil
+}
+
+func (i *Interpreter) closeSocketListener(handleID string) (*socketListenerHandle, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	handle, ok := i.socketListeners[handleID]
+	if !ok {
+		return nil, false
+	}
+	delete(i.socketListeners, handleID)
 	return handle, true
 }
 

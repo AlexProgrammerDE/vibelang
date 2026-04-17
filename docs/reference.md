@@ -330,9 +330,14 @@ Notes:
 - `http_request(url, method="GET", body="", headers={}, timeout_ms=10000)`: perform an HTTP request
 - `http_request_json(url, method="GET", body=none, headers={}, timeout_ms=10000)`: send an optional JSON body and decode the JSON response into a `json` field
 - `run_process(command, args=[], dir="", input="", env={}, timeout_ms=30000)`: execute a local process
+- `socket_listen(address, network="tcp")`: start listening for socket connections and return `{handle, address}`
+- `socket_accept(listener, timeout_ms=-1)`: accept the next connection and return `{ok, timeout, handle, local_addr, remote_addr}`
 - `socket_open(address, network="tcp", timeout_ms=5000)`: open a socket and return a handle
 - `socket_write(handle, data)`: write to an open socket
 - `socket_read(handle, max_bytes=4096, timeout_ms=1000)`: read from an open socket
+- `socket_local_addr(handle)`: return the local address for a socket handle
+- `socket_remote_addr(handle)`: return the remote address for a socket handle
+- `socket_listener_close(listener)`: close a socket listener handle
 - `socket_close(handle)`: close an open socket
 - `route_match(pattern, request_path)`: match a path against route patterns such as `/users/:id` or `/assets/*path` and return `{"matched": bool, "params": {...}}`
 - `spawn(callable, args=[], kwargs={}, wait_group=none)`: run a function concurrently and return a task handle
@@ -351,6 +356,7 @@ Notes:
 - `wait_group_done(wait_group)`: decrement the counter and return the new value
 - `wait_group_wait(wait_group, timeout_ms=-1)`: wait for the counter to reach zero
 - `http_serve(address, handler, read_timeout_ms=15000, write_timeout_ms=15000)`: start an HTTP server and return `{handle, address}`
+- `http_serve_routes(address, routes, fallback=none, read_timeout_ms=15000, write_timeout_ms=15000)`: start an HTTP server backed by ordered route dicts containing `pattern`, `handler`, and optional `methods`
 - `http_server_stop(handle, timeout_ms=5000)`: gracefully stop a server
 - `log(message, level="info", fields={})`: emit one structured JSON log record to stderr
 - `otel_init_stdout(service_name="vibelang", pretty=true)`: configure stdout OpenTelemetry tracing to stderr

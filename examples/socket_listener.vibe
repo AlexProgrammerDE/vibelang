@@ -1,0 +1,19 @@
+listener = socket_listen("127.0.0.1:0")
+accept_task = spawn(socket_accept, args=[listener["handle"]])
+
+client = socket_open(listener["address"])
+accepted = await_task(accept_task)
+
+socket_write(client, "ping")
+print(accepted["ok"])
+print(socket_read(accepted["handle"]))
+
+socket_write(accepted["handle"], "pong")
+print(socket_read(client))
+
+print(socket_remote_addr(accepted["handle"]))
+print(socket_local_addr(client))
+
+socket_close(accepted["handle"])
+socket_close(client)
+socket_listener_close(listener["handle"])

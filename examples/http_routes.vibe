@@ -1,0 +1,24 @@
+import "std/web" as web
+
+def home(request: dict) -> dict:
+    Call web.respond_json with {"route": "home", "path": request["path"]}.
+
+def profile(request: dict) -> dict:
+    Return a dict with status 200, json {"route": "profile", "id": request["params"]["id"], "method": request["method"]}.
+
+def not_found(request: dict) -> dict:
+    Return a dict with status 404, json {"route": "fallback", "path": request["path"]}.
+
+routes = [{"pattern": "/", "handler": home}, {"pattern": "/users/:id", "methods": ["GET"], "handler": profile}]
+
+server = http_serve_routes("127.0.0.1:0", routes, fallback=not_found)
+
+root = http_request_json("http://" + server["address"] + "/")
+user = http_request_json("http://" + server["address"] + "/users/ada")
+missing = http_request_json("http://" + server["address"] + "/missing")
+
+print(json_pretty(root["json"]))
+print(json_pretty(user["json"]))
+print(json_pretty(missing["json"]))
+
+http_server_stop(server["handle"])

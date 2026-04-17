@@ -24,8 +24,8 @@
 - Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
 - Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
-- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
-- Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
+- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
+- Starts AI-backed HTTP servers, including ordered route tables for multi-endpoint apps.
 - Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
@@ -265,6 +265,32 @@ print(response["status"])
 http_server_stop(server["handle"])
 ```
 
+Ordered route tables keep larger AI-backed services predictable:
+
+```python
+def home(request: dict) -> dict:
+    Return a dict with status 200, json {"route": "home"}.
+
+def profile(request: dict) -> dict:
+    Return a dict with status 200, json {"route": "profile", "id": request["params"]["id"]}.
+
+routes = [{"pattern": "/", "handler": home}, {"pattern": "/users/:id", "methods": ["GET"], "handler": profile}]
+server = http_serve_routes("127.0.0.1:0", routes)
+```
+
+TCP listener handles let deterministic code accept sockets while AI stays focused on the protocol logic:
+
+```python
+listener = socket_listen("127.0.0.1:0")
+accept_task = spawn(socket_accept, args=[listener["handle"]])
+client = socket_open(listener["address"])
+accepted = await_task(accept_task)
+
+socket_write(client, "ping")
+print(socket_read(accepted["handle"]))
+socket_listener_close(listener["handle"])
+```
+
 Deterministic code can recover from runtime errors without dropping back to the host shell:
 
 ```python
@@ -328,9 +354,9 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
-- Network: `http_request`, `http_request_json`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
+- Network: `http_request`, `http_request_json`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
-- Services: `route_match`, `http_serve`, `http_server_stop`
+- Services: `route_match`, `http_serve`, `http_serve_routes`, `http_server_stop`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
 
 Bundled `std` modules currently include:
