@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1162,6 +1163,77 @@ print(regex_replace("[0-9]+", "go123lang", "-"))
 	}
 }
 
+func TestInterpreterSupportsCSVTimeAndUUIDBuiltins(t *testing.T) {
+	source := `rows = csv_parse("name,role\nAda,builder\nGrace,scientist\n")
+matrix = csv_parse("a,b\nc,d\n", header=false)
+parsed = time_parse("2026-04-17T12:34:56Z")
+
+print(rows[0]["name"])
+print(rows[1]["role"])
+print(csv_stringify(rows))
+print(matrix[1][0])
+print(csv_stringify(matrix, header=false))
+print(parsed["year"])
+print(parsed["unix"])
+print(time_format("2026-04-17T12:34:56Z", layout="date"))
+print(time_add("2026-04-17T12:34:56Z", "90m"))
+print(time_diff("2026-04-17T12:34:56Z", "2026-04-17T14:04:56Z"))
+print(duration_parse("1h30m"))
+print(uuid_v4())
+print(uuid_v7())
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 16 {
+		t.Fatalf("expected 16 lines, got %d: %q", len(lines), stdout.String())
+	}
+
+	wantPrefix := []string{
+		"Ada",
+		"scientist",
+		"name,role",
+		"Ada,builder",
+		"Grace,scientist",
+		"c",
+		"a,b",
+		"c,d",
+		"2026",
+		"1776429296",
+		"2026-04-17",
+		"2026-04-17T14:04:56Z",
+		"5400000",
+	}
+	for index, want := range wantPrefix {
+		if lines[index] != want {
+			t.Fatalf("unexpected line %d\nwant: %q\ngot:  %q", index, want, lines[index])
+		}
+	}
+
+	if lines[13] != "5400000" {
+		t.Fatalf("unexpected duration_parse output: %q", lines[13])
+	}
+
+	uuidV4Pattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	if !uuidV4Pattern.MatchString(lines[14]) {
+		t.Fatalf("unexpected uuid_v4 output: %q", lines[14])
+	}
+	uuidV7Pattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	if !uuidV7Pattern.MatchString(lines[15]) {
+		t.Fatalf("unexpected uuid_v7 output: %q", lines[15])
+	}
+}
+
 func TestInterpreterCollectionHelpers(t *testing.T) {
 	source := `pairs = dict_items({"b": 2, "a": 1})
 indexed = enumerate(["alpha", "beta"], start=3)
@@ -1424,6 +1496,48 @@ print(summarize_weather("Berlin"))
 			{
 				Text: `{"action":"return","value":"BERLIN stays clear today."}`,
 			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include first tool result:\n%s", client.prompts[1])
+	}
+	if !strings.Contains(client.prompts[1], "replace({\"new\":\"clear\",\"old\":\"stormy\",\"text\":\"stormy\"}) => \"clear\"") {
+		t.Fatalf("follow-up prompt did not include second tool result:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterSupportsJSONCallManyActions(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call_many","calls":[{"name":"upper","arguments":{"text":"berlin"}},{"name":"replace","arguments":{"text":"stormy","old":"stormy","new":"clear"}}]}`,
+			`{"action":"return","value":"BERLIN stays clear today."}`,
 		},
 	}
 

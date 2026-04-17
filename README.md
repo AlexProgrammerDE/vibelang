@@ -22,9 +22,9 @@
 - Supports block-scoped `defer` expressions for LIFO cleanup on normal exit, `break`, `continue`, and errors.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
-- Lets AI functions call other AI functions through a strict JSON tool-call loop, and now also understands provider-native `tool_calls` responses from Ollama, `llama.cpp`, and OpenAI-compatible backends, including multi-call batches.
+- Lets AI functions call other AI functions through a strict JSON tool-call loop, supports explicit JSON `call_many` batches, and also understands provider-native `tool_calls` responses from Ollama, `llama.cpp`, and OpenAI-compatible backends, including multi-call batches.
 - Rejects direct and indirect recursive AI helper re-entry before it spirals into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
-- Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
+- Adds opt-in AI result caching, CSV and YAML helpers, first-class sets, richer dict and list helpers, time parsing and formatting, UUID generation, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, JSON, YAML, path, string, cookies, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
 - Lets one AI body route itself to a different backend with `@provider`, `@model`, `@endpoint`, `@api_key_env`, and `@timeout_ms`, so local Gemma can coexist with remote OpenAI-compatible calls in one program.
@@ -35,7 +35,7 @@
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 - Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
-- Ships standard-library modules written in vibelang itself, including `std/web`, `std/telemetry`, `std/runtime`, and `std/ai`.
+- Ships standard-library modules written in vibelang itself, including `std/web`, `std/telemetry`, `std/runtime`, and `std/ai`, with `std/web` able to render wasm-oriented HTML shells that expose initial state and optional host model endpoints.
 
 ## Quick Start
 
@@ -328,6 +328,15 @@ print(home["headers"]["Content-Type"])
 print(wasm["headers"]["Content-Type"])
 ```
 
+`std/web` can also render wasm-first shells for AI-backed routes:
+
+```python
+import "std/web" as web
+
+def handle(request: dict) -> dict:
+    Call web.respond_wasm_shell with the title "vibelang wasm demo", the route ${request["path"]}, state {"path": request["path"]}, brief "A dashboard shell that boots a wasm bundle.", wasm_path "/pkg/app.wasm", js_path "/pkg/app.js", and model_endpoint "/api/llm".
+```
+
 SSE handlers can stream channel-backed event feeds:
 
 ```python
@@ -404,6 +413,17 @@ print(rebuilt)
 print(response["json"])
 ```
 
+Structured data helpers also cover CSV, durations, and timestamp math:
+
+```python
+rows = csv_parse("name,role\nAda,builder\nGrace,scientist\n")
+print(rows[1]["role"])
+print(time_format("2026-04-17T12:34:56Z", layout="date"))
+print(time_add("2026-04-17T12:34:56Z", "90m"))
+print(duration_parse("1h30m"))
+print(uuid_v7())
+```
+
 Route matching is built in for AI-backed HTTP handlers and plain deterministic code:
 
 ```python
@@ -430,9 +450,9 @@ print(assets["params"]["path"])
 The deterministic runtime now covers more of the boring work that AI functions should not hallucinate:
 
 - Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`, `read_yaml`, `write_yaml`
-- Data: `json_parse`, `json_pretty`, `yaml_parse`, `yaml_stringify`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `sorted`, `unique`, `sum`, `min`, `max`
+- Data: `json_parse`, `json_pretty`, `yaml_parse`, `yaml_stringify`, `csv_parse`, `csv_stringify`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `sorted`, `unique`, `sum`, `min`, `max`
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`, `cookie_parse`, `cookie_build`
-- System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
+- System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `time_parse`, `time_format`, `time_add`, `time_diff`, `duration_parse`, `uuid_v4`, `uuid_v7`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `http_request_json`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
@@ -442,7 +462,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 
 Bundled `std` modules currently include:
 
-- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, typed HTML responses, JSON response construction, and SSE wrappers via `respond_app_shell`, `respond_json`, `respond_sse`, and `respond_sse_channel`
+- `std/web`: AI helpers for HTML page rendering, component fragments, app shells, wasm shells, typed HTML responses, JSON response construction, and SSE wrappers via `respond_app_shell`, `respond_wasm_shell`, `respond_json`, `respond_sse`, and `respond_sse_channel`
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/runtime`: AI helpers for summarizing live Go runtime metrics
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting

@@ -35,6 +35,7 @@ func aiSystemPrompt() string {
 		"vibelang functions are defined as natural-language instructions.",
 		"Always reply with a single JSON object that matches the provided execution schema.",
 		"Use action=call only when exactly one helper function should run next.",
+		"Use action=call_many when multiple helper functions can run next without another model round in between.",
 		"Prefer helper calls for deterministic filesystem, path, JSON, string, and environment work.",
 		"Never use markdown, code fences, or extra commentary.",
 	}, "\n")
@@ -76,6 +77,22 @@ func buildAIActionSchema(returnType string, tools []ToolSpec) (map[string]any, e
 				"call": callSchema,
 			},
 			"required":             []string{"action", "call"},
+			"additionalProperties": false,
+		})
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":  "string",
+					"const": "call_many",
+				},
+				"calls": map[string]any{
+					"type":     "array",
+					"items":    callSchema,
+					"minItems": 1,
+				},
+			},
+			"required":             []string{"action", "calls"},
 			"additionalProperties": false,
 		})
 	}
@@ -145,6 +162,7 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 	builder.WriteString("Return JSON only. Keep helper arguments valid for the declared parameter names.\n")
 	builder.WriteString(fmt.Sprintf("The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
 	builder.WriteString("Every helper call must use exactly the declared argument names and argument types.\n")
+	builder.WriteString("Use action=call_many only when the listed helper calls can be executed sequentially from the current state without waiting for another model decision.\n")
 	builder.WriteString("Never request a helper call that matches any active AI call stack entry.\n")
 	builder.WriteString("Never retry a helper call that already appears as rejected or failed in the tool history.\n")
 

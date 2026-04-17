@@ -12,6 +12,7 @@ func macroSystemPrompt() string {
 		"Macros must expand to one valid vibelang expression source string.",
 		"Always reply with a single JSON object that matches the provided macro schema.",
 		"Use action=call only when exactly one helper function should run next.",
+		"Use action=call_many when multiple helper functions can run next without another model round in between.",
 		"Never use markdown, code fences, or extra commentary.",
 	}, "\n")
 }
@@ -49,6 +50,22 @@ func buildMacroActionSchema(tools []ToolSpec) (map[string]any, error) {
 				"call": callSchema,
 			},
 			"required":             []string{"action", "call"},
+			"additionalProperties": false,
+		})
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":  "string",
+					"const": "call_many",
+				},
+				"calls": map[string]any{
+					"type":     "array",
+					"items":    callSchema,
+					"minItems": 1,
+				},
+			},
+			"required":             []string{"action", "calls"},
 			"additionalProperties": false,
 		})
 	}
@@ -108,6 +125,7 @@ func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, 
 	builder.WriteString("\n\n")
 	builder.WriteString("When finished, return action=expand and put exactly one valid vibelang expression in source.\n")
 	builder.WriteString("Every helper call must use exactly the declared argument names and argument types.\n")
+	builder.WriteString("Use action=call_many only when the listed helper calls can be executed sequentially from the current state without waiting for another model decision.\n")
 	builder.WriteString("Do not wrap the expression in markdown or explanations.\n")
 
 	return builder.String(), nil

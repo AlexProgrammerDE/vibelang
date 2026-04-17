@@ -326,6 +326,8 @@ Notes:
 - `contains(container, value)`: containment check as a builtin helper
 - `base64_encode(text)`: encode text as base64
 - `base64_decode(text)`: decode base64 text
+- `csv_parse(text, header=true)`: parse CSV into dict rows or plain string rows
+- `csv_stringify(rows, header=true, columns=[])`: encode dict rows or plain string rows as CSV
 - `url_encode(text)`: percent-encode URL query text
 - `url_decode(text)`: decode percent-encoded URL query text
 - `query_encode(query)`: encode a dict of query parameters into a stable query string
@@ -357,6 +359,13 @@ Notes:
 - `ceil(value)`: ceiling as an integer
 - `now()`: current time in RFC3339 form
 - `unix_time()`: current Unix timestamp
+- `time_parse(text, layout="rfc3339")`: parse a timestamp into calendar fields and Unix timestamps
+- `time_format(value, layout="rfc3339", input_layout="rfc3339")`: format a timestamp string or `time_parse` dict
+- `time_add(value, duration, input_layout="rfc3339")`: add a duration to a timestamp and return RFC3339
+- `time_diff(start, end, unit="milliseconds", input_layout="rfc3339")`: compute `end - start` in one unit
+- `duration_parse(text, unit="milliseconds")`: parse a Go duration string into an integer unit value
+- `uuid_v4()`: generate a random UUID version 4
+- `uuid_v7()`: generate a time-ordered UUID version 7
 - `sleep(milliseconds)`: pause execution
 - `http_request(url, method="GET", body="", headers={}, timeout_ms=10000)`: perform an HTTP request
 - `http_request_json(url, method="GET", body=none, headers={}, timeout_ms=10000)`: send an optional JSON body and decode the JSON response into a `json` field
@@ -416,7 +425,7 @@ HTTP handler response notes:
 
 Bundled modules:
 
-- `std/web`: AI helpers for HTML rendering, component fragments, app shells, typed HTML or JSON response construction, and SSE wrappers
+- `std/web`: AI helpers for HTML rendering, component fragments, app shells, wasm shells, typed HTML or JSON response construction, and SSE wrappers
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/runtime`: AI helpers for summarizing live Go runtime snapshots
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
@@ -437,6 +446,7 @@ Behavior:
 
 - `return` ends the function.
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
+- `call_many` invokes multiple helper calls in order during one model step, records each result or rejection, and then asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Helper call schemas are specialized per tool, so models see exact helper names plus the allowed and required argument fields for each callable.
 - When a backend supports native tools, `vibelang` also sends the helper catalog through the provider `tools` field and accepts native `tool_calls` responses in addition to the JSON action envelope.

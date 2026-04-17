@@ -113,6 +113,16 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic data tools example
+        run: |
+          output="$(go run ./cmd/vibelang examples/data_tools.vibe)"
+          expected=$'Ada\nscientist\nname,role\nAda,builder\nGrace,scientist\n2026-04-17\n2026-04-17T14:04:56Z\n5400000\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected data_tools.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Run deterministic cookie example
         run: |
           output="$(go run ./cmd/vibelang examples/cookies.vibe)"

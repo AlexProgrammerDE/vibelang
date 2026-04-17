@@ -31,6 +31,27 @@ def render_app_shell(title: string, route: string, state: dict, brief: string, a
     The product brief is ${brief}.
     Build one root app shell with semantic sections, progressive enhancement, and a tiny inline script for light interactions without external dependencies.
 
+def render_wasm_shell(title: string, route: string, state: dict, brief: string, wasm_path: string, js_path: string = "", model_endpoint: string = "", mount_id: string = "app", accent: string = "teal", theme: string = default_theme) -> string:
+    @temperature 0.1
+    @max_tokens 2200
+    @tools json_pretty
+    Return a complete HTML5 document for a vibecoded web route that boots a WebAssembly app.
+    The app title is ${title}.
+    The route is ${route}.
+    The initial state JSON is ${json_pretty(state)}.
+    The product brief is ${brief}.
+    The WebAssembly module path is ${wasm_path}.
+    The optional JavaScript module path is ${js_path}.
+    The optional host LLM endpoint is ${model_endpoint}.
+    The root mount id is ${mount_id}.
+    Build semantic HTML with one obvious root element whose id is ${mount_id}.
+    Keep CSS inline, production-shaped, and mobile-friendly.
+    Include a small inline module script that stores the initial state on window.__VIBE_STATE__.
+    If model_endpoint is not empty, also expose it on window.__VIBE_MODEL_ENDPOINT__.
+    Use WebAssembly.instantiateStreaming(fetch(wasm_path), imports) when available and fall back to fetch + arrayBuffer + WebAssembly.instantiate.
+    If js_path is not empty, import that module after the wasm boot so client code can progressively enhance the page.
+    Keep the script dependency-free and readable.
+
 def respond_html(title: string, brief: string, status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict{status: int, headers: dict[string, string], html: string}:
     @temperature 0
     @tools render_page
@@ -47,6 +68,12 @@ def respond_app_shell(title: string, route: string, state: dict, brief: string, 
     @temperature 0
     @tools render_app_shell
     Call render_app_shell with ${title}, ${route}, ${state}, ${brief}, ${accent}, and ${theme}.
+    Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.
+
+def respond_wasm_shell(title: string, route: string, state: dict, brief: string, wasm_path: string, js_path: string = "", model_endpoint: string = "", mount_id: string = "app", status: int = 200, accent: string = "teal", theme: string = default_theme) -> dict{status: int, headers: dict[string, string], html: string}:
+    @temperature 0
+    @tools render_wasm_shell
+    Call render_wasm_shell with ${title}, ${route}, ${state}, ${brief}, ${wasm_path}, ${js_path}, ${model_endpoint}, ${mount_id}, ${accent}, and ${theme}.
     Return a dict with status ${status}, headers {"content-type": "text/html; charset=utf-8"}, and the rendered html.
 
 def respond_json(payload: any, status: int = 200) -> dict{status: int, headers: dict[string, string], json: any}:

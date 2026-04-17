@@ -1,0 +1,21 @@
+import "std/web" as web
+
+state = {"route": "/dashboard", "user": {"name": "Ada"}, "features": ["wasm", "llm", "streaming"]}
+
+def handle(request: dict) -> dict:
+    Call web.respond_wasm_shell with:
+    - title "vibelang wasm demo"
+    - route ${request["path"]}
+    - state ${state}
+    - brief "A dashboard shell that boots a wasm app and can optionally call a host LLM endpoint."
+    - wasm_path "/pkg/app.wasm"
+    - js_path "/pkg/app.js"
+    - model_endpoint "/api/llm"
+    - mount_id "dashboard-root"
+
+server = http_serve("127.0.0.1:0", handle)
+response = http_request("http://" + server["address"] + "/dashboard")
+
+print(response["status"])
+print(response["headers"]["Content-Type"])
+http_server_stop(server["handle"])

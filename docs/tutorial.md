@@ -235,6 +235,15 @@ print(home["headers"]["Content-Type"])
 print(wasm["headers"]["Content-Type"])
 ```
 
+`std/web` also ships a wasm shell helper for routes that want AI-rendered HTML plus a browser bootstrap:
+
+```python
+import "std/web" as web
+
+def handle(request: dict) -> dict:
+    Call web.respond_wasm_shell with the title "wasm demo", route ${request["path"]}, state {"path": request["path"]}, brief "A dashboard shell that boots a wasm bundle.", wasm_path "/pkg/app.wasm", js_path "/pkg/app.js", and model_endpoint "/api/llm".
+```
+
 The helper catalog is also available to deterministic code:
 
 ```python
@@ -315,6 +324,17 @@ print(parsed["hostname"])
 print(rebuilt)
 ```
 
+There are also deterministic CSV, time, and UUID helpers for boring data work that should not go through the model:
+
+```python
+rows = csv_parse("name,role\nAda,builder\nGrace,scientist\n")
+print(rows[1]["role"])
+print(time_format("2026-04-17T12:34:56Z", layout="date"))
+print(time_add("2026-04-17T12:34:56Z", "90m"))
+print(duration_parse("1h30m"))
+print(uuid_v7())
+```
+
 Typed structured outputs make AI functions more reliable because the runtime now turns the declared return type into a stricter JSON schema before it calls the model:
 
 ```python
@@ -379,11 +399,13 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/tool_chain.vibe](../examples/tool_chain.vibe) to see AI tool calls in action.
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.
+- Run [examples/data_tools.vibe](../examples/data_tools.vibe) to see deterministic CSV and time helpers.
 - Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
 - Run [examples/http_static.vibe](../examples/http_static.vibe) to see deterministic static asset serving with `application/wasm` detection.
+- Run [examples/wasm_shell.vibe](../examples/wasm_shell.vibe) to see a wasm-oriented `std/web` route shell.
 - Run [examples/http_routes.vibe](../examples/http_routes.vibe) to see ordered route tables and route params for AI-backed servers.
 - Run [examples/model_routing.vibe](../examples/model_routing.vibe) to see one function route itself to a different model backend.
 - Run [examples/routes.vibe](../examples/routes.vibe) to validate deterministic route matching without needing a model.

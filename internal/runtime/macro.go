@@ -130,15 +130,17 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			return nil, fmt.Errorf("%s model request failed: %w", macro.Name(), err)
 		}
 		if len(response.ToolCalls) > 0 {
+			calls := make([]toolInvocation, 0, len(response.ToolCalls))
 			for _, toolCall := range response.ToolCalls {
 				i.tracef("%s native macro tool call: %s with %s", macro.Name(), toolCall.Name, jsonString(toolCall.Arguments))
-				history, err = i.executeMacroToolInvocation(ctx, macro, toolInvocation{
+				calls = append(calls, toolInvocation{
 					Name:      toolCall.Name,
 					Arguments: toolCall.Arguments,
-				}, history)
-				if err != nil {
-					return nil, err
-				}
+				})
+			}
+			history, err = i.executeMacroToolInvocations(ctx, macro, calls, history)
+			if err != nil {
+				return nil, err
 			}
 			continue
 		}
@@ -178,6 +180,14 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			if err != nil {
 				return nil, err
 			}
+		case "call_many":
+			if len(action.Calls) == 0 {
+				return nil, fmt.Errorf("%s requested batched helper calls without call details", macro.Name())
+			}
+			history, err = i.executeMacroToolInvocations(ctx, macro, action.Calls, history)
+			if err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("%s returned unsupported action %q", macro.Name(), action.Action)
 		}
@@ -190,6 +200,7 @@ type macroAction struct {
 	Action string
 	Source string
 	Call   *toolInvocation
+	Calls  []toolInvocation
 }
 
 func (i *Interpreter) executeMacroToolInvocation(ctx context.Context, macro *AIMacro, call toolInvocation, history []ToolEvent) ([]ToolEvent, error) {
@@ -247,6 +258,17 @@ func (i *Interpreter) executeMacroToolInvocation(ctx context.Context, macro *AIM
 	return history, nil
 }
 
+func (i *Interpreter) executeMacroToolInvocations(ctx context.Context, macro *AIMacro, calls []toolInvocation, history []ToolEvent) ([]ToolEvent, error) {
+	for _, call := range calls {
+		var err error
+		history, err = i.executeMacroToolInvocation(ctx, macro, call, history)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return history, nil
+}
+
 func decodeAIMacroAction(text string) (macroAction, error) {
 	raw := strings.TrimSpace(text)
 	if raw == "" {
@@ -283,6 +305,12 @@ func decodeMacroActionPayload(payload map[string]any) (macroAction, error) {
 				return macroAction{}, err
 			}
 			return macroAction{Action: "call", Call: call}, nil
+		case "call_many":
+			calls, err := decodeToolInvocations(payload["calls"])
+			if err != nil {
+				return macroAction{}, err
+			}
+			return macroAction{Action: "call_many", Calls: calls}, nil
 		}
 	}
 
@@ -295,6 +323,20 @@ func decodeMacroActionPayload(payload map[string]any) (macroAction, error) {
 			return macroAction{}, err
 		}
 		return macroAction{Action: "call", Call: call}, nil
+	}
+	if callsPayload, ok := payload["calls"]; ok {
+		calls, err := decodeToolInvocations(callsPayload)
+		if err != nil {
+			return macroAction{}, err
+		}
+		return macroAction{Action: "call_many", Calls: calls}, nil
+	}
+	if toolCallsPayload, ok := payload["tool_calls"]; ok {
+		calls, err := decodeToolInvocations(toolCallsPayload)
+		if err != nil {
+			return macroAction{}, err
+		}
+		return macroAction{Action: "call_many", Calls: calls}, nil
 	}
 
 	return macroAction{}, fmt.Errorf("response did not include a valid macro action")

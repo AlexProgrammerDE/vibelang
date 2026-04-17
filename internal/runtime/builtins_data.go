@@ -1,11 +1,14 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -15,6 +18,44 @@ import (
 func registerDataBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("json_parse", builtinJSONParse, "any", "Parse a JSON string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("yaml_parse", builtinYAMLParse, "any", "Parse a YAML string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "csv_parse",
+		call: builtinCSVParse,
+		tool: &ToolSpec{
+			Name:       "csv_parse",
+			ReturnType: ast.TypeRef{Expr: "list"},
+			Body:       "Parse CSV text into a list of dict rows when header is true, or a list of string lists when header is false.",
+			Params: []ast.Param{
+				{Name: "text", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "header", Type: ast.TypeRef{Expr: "bool"}, DefaultText: "true"},
+			},
+		},
+		defaults: map[string]any{
+			"header": true,
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "csv_stringify",
+		call: builtinCSVStringify,
+		tool: &ToolSpec{
+			Name:       "csv_stringify",
+			ReturnType: ast.TypeRef{Expr: "string"},
+			Body:       "Encode a list of dict rows or a list of string lists as CSV text. Dict rows use sorted columns unless columns is provided.",
+			Params: []ast.Param{
+				{Name: "rows", Type: ast.TypeRef{Expr: "list"}},
+				{Name: "header", Type: ast.TypeRef{Expr: "bool"}, DefaultText: "true"},
+				{Name: "columns", Type: ast.TypeRef{Expr: "list[string]"}, DefaultText: "[]"},
+			},
+		},
+		defaults: map[string]any{
+			"header":  true,
+			"columns": []any{},
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "json_pretty",
 		call: builtinJSONPretty,
@@ -142,6 +183,56 @@ func builtinJSONParse(_ context.Context, _ *Interpreter, args []any) (any, error
 	return normalizeJSONValue(value), nil
 }
 
+func builtinCSVParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("csv_parse", args, 2); err != nil {
+		return nil, err
+	}
+	text, err := requireString("csv_parse", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	header, err := requireBool("csv_parse", args[1], "header")
+	if err != nil {
+		return nil, err
+	}
+
+	reader := csv.NewReader(strings.NewReader(text))
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if !header {
+		rows := make([]any, 0, len(records))
+		for _, record := range records {
+			row := make([]any, 0, len(record))
+			for _, value := range record {
+				row = append(row, value)
+			}
+			rows = append(rows, row)
+		}
+		return rows, nil
+	}
+	if len(records) == 0 {
+		return []any{}, nil
+	}
+
+	headers := csvHeaders(records[0])
+	rows := make([]any, 0, len(records)-1)
+	for _, record := range records[1:] {
+		row := make(map[string]any, len(headers))
+		for index, column := range headers {
+			if index < len(record) {
+				row[column] = record[index]
+			} else {
+				row[column] = ""
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
 func builtinJSONPretty(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("json_pretty", args, 2); err != nil {
 		return nil, err
@@ -157,6 +248,89 @@ func builtinJSONPretty(_ context.Context, _ *Interpreter, args []any) (any, erro
 	return string(encoded), nil
 }
 
+func builtinCSVStringify(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("csv_stringify", args, 3); err != nil {
+		return nil, err
+	}
+	rows, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("csv_stringify expects rows to be a list")
+	}
+	header, err := requireBool("csv_stringify", args[1], "header")
+	if err != nil {
+		return nil, err
+	}
+	columns, err := requireStringList("csv_stringify", args[2], "columns")
+	if err != nil {
+		return nil, err
+	}
+
+	var buffer bytes.Buffer
+	writer := csv.NewWriter(&buffer)
+
+	if len(rows) == 0 {
+		if header && len(columns) > 0 {
+			if err := writer.Write(columns); err != nil {
+				return nil, err
+			}
+		}
+		writer.Flush()
+		if err := writer.Error(); err != nil {
+			return nil, err
+		}
+		return buffer.String(), nil
+	}
+
+	if _, ok := asMap(rows[0]); ok {
+		if len(columns) == 0 {
+			columns = csvColumnsFromRows(rows)
+		}
+		if header {
+			if err := writer.Write(columns); err != nil {
+				return nil, err
+			}
+		}
+		for _, rawRow := range rows {
+			row, ok := asMap(rawRow)
+			if !ok {
+				return nil, fmt.Errorf("csv_stringify expects every row to be a dict when the first row is a dict")
+			}
+			record := make([]string, 0, len(columns))
+			for _, column := range columns {
+				record = append(record, stringify(row[column]))
+			}
+			if err := writer.Write(record); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		if header && len(columns) > 0 {
+			if err := writer.Write(columns); err != nil {
+				return nil, err
+			}
+		}
+		for _, rawRow := range rows {
+			row, ok := asList(rawRow)
+			if !ok {
+				return nil, fmt.Errorf("csv_stringify expects every row to be a list when the first row is a list")
+			}
+			record := make([]string, 0, len(row))
+			for _, value := range row {
+				record = append(record, stringify(value))
+			}
+			if err := writer.Write(record); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+	return strings.TrimSuffix(buffer.String(), "\n"), nil
+}
+
 func builtinYAMLParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("yaml_parse", args, 1); err != nil {
 		return nil, err
@@ -166,6 +340,44 @@ func builtinYAMLParse(_ context.Context, _ *Interpreter, args []any) (any, error
 		return nil, err
 	}
 	return parseYAMLText(text)
+}
+
+func csvHeaders(headerRow []string) []string {
+	headers := make([]string, 0, len(headerRow))
+	seen := make(map[string]int, len(headerRow))
+	for index, header := range headerRow {
+		base := strings.TrimSpace(header)
+		if base == "" {
+			base = fmt.Sprintf("column_%d", index+1)
+		}
+		name := base
+		if count := seen[base]; count > 0 {
+			name = fmt.Sprintf("%s_%d", base, count+1)
+		}
+		seen[base]++
+		headers = append(headers, name)
+	}
+	return headers
+}
+
+func csvColumnsFromRows(rows []any) []string {
+	columns := make(map[string]struct{})
+	for _, rawRow := range rows {
+		row, ok := asMap(rawRow)
+		if !ok {
+			continue
+		}
+		for key := range row {
+			columns[key] = struct{}{}
+		}
+	}
+
+	names := make([]string, 0, len(columns))
+	for key := range columns {
+		names = append(names, key)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func builtinYAMLStringify(_ context.Context, _ *Interpreter, args []any) (any, error) {

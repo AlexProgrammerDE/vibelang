@@ -22,8 +22,8 @@ func TestBuildAIActionSchemaConstrainsToolArguments(t *testing.T) {
 	}
 
 	variants, ok := schema["oneOf"].([]any)
-	if !ok || len(variants) != 2 {
-		t.Fatalf("expected return and call variants, got %#v", schema["oneOf"])
+	if !ok || len(variants) != 3 {
+		t.Fatalf("expected return, call, and call_many variants, got %#v", schema["oneOf"])
 	}
 
 	callVariant, ok := variants[1].(map[string]any)
@@ -71,6 +71,22 @@ func TestBuildAIActionSchemaConstrainsToolArguments(t *testing.T) {
 	if len(required) != 1 || required[0] != "city" {
 		t.Fatalf("expected only city to be required, got %#v", required)
 	}
+
+	callManyVariant, ok := variants[2].(map[string]any)
+	if !ok {
+		t.Fatalf("expected call_many variant to be an object, got %#v", variants[2])
+	}
+	callManyProperties, ok := callManyVariant["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected call_many properties, got %#v", callManyVariant["properties"])
+	}
+	callsSchema, ok := callManyProperties["calls"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected call_many calls schema, got %#v", callManyProperties["calls"])
+	}
+	if callsSchema["minItems"] != 1 {
+		t.Fatalf("expected call_many calls schema to require at least one item, got %#v", callsSchema["minItems"])
+	}
 }
 
 func TestBuildMacroActionSchemaConstrainsToolArguments(t *testing.T) {
@@ -90,8 +106,8 @@ func TestBuildMacroActionSchemaConstrainsToolArguments(t *testing.T) {
 	}
 
 	variants, ok := schema["oneOf"].([]any)
-	if !ok || len(variants) != 2 {
-		t.Fatalf("expected expand and call variants, got %#v", schema["oneOf"])
+	if !ok || len(variants) != 3 {
+		t.Fatalf("expected expand, call, and call_many variants, got %#v", schema["oneOf"])
 	}
 
 	callVariant, ok := variants[1].(map[string]any)
@@ -121,5 +137,21 @@ func TestBuildMacroActionSchemaConstrainsToolArguments(t *testing.T) {
 	}
 	if len(required) != 1 || required[0] != "stop" {
 		t.Fatalf("expected only stop to be required, got %#v", required)
+	}
+
+	callManyVariant, ok := variants[2].(map[string]any)
+	if !ok {
+		t.Fatalf("expected call_many variant to be an object, got %#v", variants[2])
+	}
+	callManyProperties, ok := callManyVariant["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected call_many properties, got %#v", callManyVariant["properties"])
+	}
+	callsSchema, ok := callManyProperties["calls"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected call_many calls schema, got %#v", callManyProperties["calls"])
+	}
+	if callsSchema["minItems"] != 1 {
+		t.Fatalf("expected call_many calls schema to require at least one item, got %#v", callsSchema["minItems"])
 	}
 }

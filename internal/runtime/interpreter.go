@@ -985,15 +985,17 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			return nil, fmt.Errorf("%s model request failed: %w", function.Name(), err)
 		}
 		if len(response.ToolCalls) > 0 {
+			calls := make([]toolInvocation, 0, len(response.ToolCalls))
 			for _, toolCall := range response.ToolCalls {
 				i.tracef("%s native tool call: %s with %s", function.Name(), toolCall.Name, jsonString(toolCall.Arguments))
-				history, err = i.executeAIFunctionToolInvocation(ctx, function, toolInvocation{
+				calls = append(calls, toolInvocation{
 					Name:      toolCall.Name,
 					Arguments: toolCall.Arguments,
-				}, directives, excludeTool, chain, depth, history)
-				if err != nil {
-					return nil, err
-				}
+				})
+			}
+			history, err = i.executeAIFunctionToolInvocations(ctx, function, calls, directives, excludeTool, chain, depth, history)
+			if err != nil {
+				return nil, err
 			}
 			continue
 		}
@@ -1023,6 +1025,14 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 				return nil, fmt.Errorf("%s requested a helper call without call details", function.Name())
 			}
 			history, err = i.executeAIFunctionToolInvocation(ctx, function, *action.Call, directives, excludeTool, chain, depth, history)
+			if err != nil {
+				return nil, err
+			}
+		case "call_many":
+			if len(action.Calls) == 0 {
+				return nil, fmt.Errorf("%s requested batched helper calls without call details", function.Name())
+			}
+			history, err = i.executeAIFunctionToolInvocations(ctx, function, action.Calls, directives, excludeTool, chain, depth, history)
 			if err != nil {
 				return nil, err
 			}
@@ -1107,6 +1117,17 @@ func (i *Interpreter) executeAIFunctionToolInvocation(ctx context.Context, funct
 		Arguments: bound,
 		Result:    result,
 	})
+	return history, nil
+}
+
+func (i *Interpreter) executeAIFunctionToolInvocations(ctx context.Context, function *AIFunction, calls []toolInvocation, directives aiDirectiveConfig, excludeTool string, chain []aiCallFrame, depth int, history []ToolEvent) ([]ToolEvent, error) {
+	for _, call := range calls {
+		var err error
+		history, err = i.executeAIFunctionToolInvocation(ctx, function, call, directives, excludeTool, chain, depth, history)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return history, nil
 }
 

@@ -252,6 +252,7 @@ type aiAction struct {
 	Action string
 	Value  any
 	Call   *toolInvocation
+	Calls  []toolInvocation
 }
 
 type toolInvocation struct {
@@ -295,6 +296,12 @@ func decodeActionPayload(payload map[string]any) (aiAction, error) {
 				return aiAction{}, err
 			}
 			return aiAction{Action: "call", Call: call}, nil
+		case "call_many":
+			calls, err := decodeToolInvocations(payload["calls"])
+			if err != nil {
+				return aiAction{}, err
+			}
+			return aiAction{Action: "call_many", Calls: calls}, nil
 		}
 	}
 
@@ -310,6 +317,20 @@ func decodeActionPayload(payload map[string]any) (aiAction, error) {
 			return aiAction{}, err
 		}
 		return aiAction{Action: "call", Call: call}, nil
+	}
+	if callsPayload, ok := payload["calls"]; ok {
+		calls, err := decodeToolInvocations(callsPayload)
+		if err != nil {
+			return aiAction{}, err
+		}
+		return aiAction{Action: "call_many", Calls: calls}, nil
+	}
+	if toolCallsPayload, ok := payload["tool_calls"]; ok {
+		calls, err := decodeToolInvocations(toolCallsPayload)
+		if err != nil {
+			return aiAction{}, err
+		}
+		return aiAction{Action: "call_many", Calls: calls}, nil
 	}
 	if functionName, ok := payload["function"].(string); ok {
 		args, _ := payload["arguments"].(map[string]any)
@@ -339,4 +360,24 @@ func decodeToolInvocation(value any) (*toolInvocation, error) {
 		arguments = map[string]any{}
 	}
 	return &toolInvocation{Name: name, Arguments: arguments}, nil
+}
+
+func decodeToolInvocations(value any) ([]toolInvocation, error) {
+	items, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("tool calls were not an array")
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("tool calls array was empty")
+	}
+
+	calls := make([]toolInvocation, 0, len(items))
+	for _, item := range items {
+		call, err := decodeToolInvocation(item)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, *call)
+	}
+	return calls, nil
 }
