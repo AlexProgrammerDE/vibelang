@@ -101,6 +101,7 @@ def slugify(title: string) -> string:
     @max_tokens 128
     @max_steps 4
     @cache true
+    @system You are a literal slugging assistant. Return only the slug text.
     @tools lower, trim, replace, regex_replace
     Convert ${title} into a lowercase URL slug.
 ```
@@ -112,6 +113,7 @@ Supported directives:
 - `@max_steps <int>`: override the helper-call loop limit
 - `@timeout_ms <int>`: override the backend request timeout used to construct the model client for this body
 - `@cache <bool>`: opt into memoizing successful AI results for identical inputs within one interpreter run
+- `@system <text>`: append body-local system guidance to the interpreter's fixed execution-system prompt
 - `@tools name_a, name_b`: allow only the listed helper functions
 - `@deny_tools name_a, name_b`: hide specific helper functions from this body
 - `@provider <name>`: route this body through a different provider such as `ollama`, `llamacpp`, `openai`, `groq`, or `openai-compatible`
@@ -286,6 +288,8 @@ Notes:
 - `json_pretty(value, indent="  ")`: encode a value as indented JSON
 - `yaml_parse(text)`: parse YAML text into vibelang values
 - `yaml_stringify(value)`: encode a value as YAML
+- `toml_parse(text)`: parse TOML text into vibelang values
+- `toml_stringify(value)`: encode a value as TOML
 - `set(values)`: create a set from a list
 - `set_values(set)`: return sorted set values as a list
 - `set_has(set, value)`: membership check for sets
@@ -344,6 +348,7 @@ Notes:
 - `cookie_parse(header)`: parse a `Cookie` header into a dict of cookie values
 - `cookie_build(name, value, attrs={})`: build one `Set-Cookie` header value; supported attrs include `path`, `domain`, `max_age`, `secure`, `http_only`, `same_site`, `expires`, and `partitioned`
 - `html_escape(text)`: escape text for HTML
+- `markdown_to_html(text)`: render Markdown to HTML with CommonMark and GFM-style extensions
 - `template_render(template, data)`: replace `${path}` placeholders from nested dict data
 - `sha256(text)`: return the hex SHA-256 digest of a string
 - `regex_match(pattern, text)`: test whether a regex matches
@@ -351,6 +356,7 @@ Notes:
 - `regex_replace(pattern, text, replacement)`: replace regex matches
 - `read_json(path)`: read and decode JSON
 - `read_yaml(path)`: read and decode YAML
+- `read_toml(path)`: read and decode TOML
 - `write_file(path, content)`: write a UTF-8 text file and return the path
 - `copy_file(source, destination)`: copy a file and return the destination path
 - `move_file(source, destination)`: move or rename a file and return the destination path
@@ -359,6 +365,7 @@ Notes:
 - `append_file(path, content)`: append text to a file and return the path
 - `write_json(path, value)`: write formatted JSON and return the path
 - `write_yaml(path, value)`: write YAML and return the path
+- `write_toml(path, value)`: write TOML and return the path
 - `sqrt(value)`: square root
 - `pow(base, exponent)`: exponentiation helper
 - `abs(value)`: absolute value
@@ -388,6 +395,7 @@ Notes:
 - `socket_listener_close(listener)`: close a socket listener handle
 - `socket_close(handle)`: close an open socket
 - `route_match(pattern, request_path)`: match a path against route patterns such as `/users/:id` or `/assets/*path` and return `{"matched": bool, "params": {...}}`
+- `route_build(pattern, params={}, query={})`: build a path from route params and optional query parameters
 - `spawn(callable, args=[], kwargs={}, wait_group=none)`: run a function concurrently and return a task handle
 - `await_task(task, timeout_ms=-1)`: wait for a task and return its result
 - `task_status(task)`: inspect task completion, timestamps, result, or error
@@ -434,6 +442,7 @@ Bundled modules:
 
 - `std/web`: AI helpers for HTML rendering, component fragments, app shells, wasm shells, typed HTML or JSON response construction, and SSE wrappers
 - `std/react`: AI helpers for React-like component fragments and route shells
+- `std/config`: AI helpers for summarizing config objects and TOML text or files
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/runtime`: AI helpers for summarizing live Go runtime snapshots
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting

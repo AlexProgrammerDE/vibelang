@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -11,6 +12,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 
 	"vibelang/internal/ast"
 )
@@ -25,12 +29,17 @@ func registerTextBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("url_parse", builtinURLParse, "dict", "Parse a URL and return its components, including a decoded query dict.", ast.Param{Name: "raw_url", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("url_build", builtinURLBuild, "string", "Build a URL string from a dict with scheme, host, path, query, and fragment fields.", ast.Param{Name: "parts", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("html_escape", builtinHTMLEscape, "string", "Escape text for safe insertion into HTML text and attribute content.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("markdown_to_html", builtinMarkdownToHTML, "string", "Render Markdown to HTML using CommonMark and GFM-style extensions.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("template_render", builtinTemplateRender, "string", "Render a template string by replacing ${path} placeholders with values from a dict using dot-separated lookup paths.", ast.Param{Name: "template", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "data", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("sha256", builtinSHA256, "string", "Return the lowercase hexadecimal SHA-256 digest for a string.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("regex_match", builtinRegexMatch, "bool", "Return true when the regular expression matches anywhere in the text.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("regex_find_all", builtinRegexFindAll, "list[string]", "Return all regex matches in the text, in order.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("regex_replace", builtinRegexReplace, "string", "Replace every regex match in the text with the replacement string.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "replacement", Type: ast.TypeRef{Expr: "string"}}))
 }
+
+var markdownRenderer = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+)
 
 func builtinBase64Encode(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("base64_encode", args, 1); err != nil {
@@ -192,6 +201,21 @@ func builtinHTMLEscape(_ context.Context, _ *Interpreter, args []any) (any, erro
 		return nil, err
 	}
 	return html.EscapeString(text), nil
+}
+
+func builtinMarkdownToHTML(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("markdown_to_html", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("markdown_to_html", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+	var buffer bytes.Buffer
+	if err := markdownRenderer.Convert([]byte(text), &buffer); err != nil {
+		return nil, err
+	}
+	return buffer.String(), nil
 }
 
 func builtinTemplateRender(_ context.Context, _ *Interpreter, args []any) (any, error) {

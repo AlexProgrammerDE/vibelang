@@ -11,7 +11,7 @@
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports Python-style unpacking targets in assignments and `for` loops.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
-- Supports leading AI directives such as `@temperature`, `@max_tokens`, `@max_steps`, `@cache`, `@tools`, and `@deny_tools` inside function and macro bodies.
+- Supports leading AI directives such as `@temperature`, `@max_tokens`, `@max_steps`, `@cache`, `@system`, `@tools`, and `@deny_tools` inside function and macro bodies.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns plus optional `if` guards.
@@ -24,7 +24,7 @@
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop, supports explicit JSON `call_many` batches, and also understands provider-native `tool_calls` responses from Ollama, `llama.cpp`, and OpenAI-compatible backends, including multi-call batches.
 - Rejects direct and indirect recursive AI helper re-entry before it spirals into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
-- Adds opt-in AI result caching, CSV and YAML helpers, first-class sets, richer dict and list helpers, Python-inspired collection helpers such as `all`, `any`, `reversed`, `flatten`, and `batched`, time parsing and formatting, UUID generation, numeric reducers, structured logging, and OpenTelemetry trace export.
+- Adds opt-in AI result caching, CSV/YAML/TOML helpers, first-class sets, richer dict and list helpers, Python-inspired collection helpers such as `all`, `any`, `reversed`, `flatten`, and `batched`, Markdown rendering, route construction, time parsing and formatting, UUID generation, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
 - Exposes a broader standard library for AI execution, including filesystem, JSON, YAML, path, string, cookies, environment, globbing, HTTP, TCP clients and listeners, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, route matching, and runtime metrics.
 - Lets one AI body route itself to a different backend with `@provider`, `@model`, `@endpoint`, `@api_key_env`, and `@timeout_ms`, so local Gemma can coexist with remote OpenAI-compatible calls in one program.
@@ -35,7 +35,7 @@
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 - Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
-- Ships standard-library modules written in vibelang itself, including `std/web`, `std/react`, `std/telemetry`, `std/runtime`, and `std/ai`, with `std/web` able to render wasm-oriented HTML shells that expose initial state and optional host model endpoints and `std/react` able to generate React-like shells over the same host-model pattern.
+- Ships standard-library modules written in vibelang itself, including `std/web`, `std/react`, `std/config`, `std/telemetry`, `std/runtime`, and `std/ai`, with `std/web` able to render wasm-oriented HTML shells that expose initial state and optional host model endpoints, `std/react` able to generate React-like shells over the same host-model pattern, and `std/config` able to summarize TOML-driven configuration with AI.
 
 ## Quick Start
 
@@ -128,6 +128,7 @@ def slugify(title: string) -> string:
     @temperature 0
     @max_steps 4
     @cache true
+    @system You are a literal slugging assistant. Return only the slug text.
     @tools lower, trim, replace, regex_replace
     Convert ${title} into a lowercase URL slug.
     Replace whitespace runs with "-".
@@ -457,6 +458,18 @@ print(user["params"]["id"])
 print(assets["params"]["path"])
 ```
 
+TOML and Markdown helpers make config-heavy web flows less prompt-dependent:
+
+```python
+config = toml_parse("title = \"vibelang\"\n[server]\nport = 8080\n")
+route = route_build("/users/:id/files/*path", {"id": "42", "path": "docs/readme.md"}, {"tab": "preview"})
+html = markdown_to_html("# Release Notes\n\n- shipped\n")
+
+print(config["server"]["port"])
+print(route)
+print(contains(html, "<li>shipped</li>"))
+```
+
 ## Project Layout
 
 - `cmd/vibelang`: CLI entrypoint.
@@ -472,14 +485,14 @@ print(assets["params"]["path"])
 
 The deterministic runtime now covers more of the boring work that AI functions should not hallucinate:
 
-- Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`, `read_yaml`, `write_yaml`
-- Data: `json_parse`, `json_pretty`, `yaml_parse`, `yaml_stringify`, `csv_parse`, `csv_stringify`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `set_symmetric_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `dict_delete`, `all`, `any`, `reversed`, `flatten`, `batched`, `sorted`, `unique`, `sum`, `min`, `max`
-- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`, `cookie_parse`, `cookie_build`
+- Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`, `read_yaml`, `write_yaml`, `read_toml`, `write_toml`
+- Data: `json_parse`, `json_pretty`, `yaml_parse`, `yaml_stringify`, `toml_parse`, `toml_stringify`, `csv_parse`, `csv_stringify`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `set_symmetric_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `dict_delete`, `all`, `any`, `reversed`, `flatten`, `batched`, `sorted`, `unique`, `sum`, `min`, `max`
+- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `markdown_to_html`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`, `cookie_parse`, `cookie_build`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `time_parse`, `time_format`, `time_add`, `time_diff`, `duration_parse`, `uuid_v4`, `uuid_v7`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `http_request_json`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
-- Services: `route_match`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`
+- Services: `route_match`, `route_build`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`
 - Runtime introspection: `tool_catalog`, `tool_describe`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`, `runtime_metrics`, `runtime_metric`
 
@@ -487,6 +500,7 @@ Bundled `std` modules currently include:
 
 - `std/web`: AI helpers for HTML page rendering, component fragments, app shells, wasm shells, typed HTML responses, JSON response construction, and SSE wrappers via `respond_app_shell`, `respond_wasm_shell`, `respond_json`, `respond_sse`, and `respond_sse_channel`
 - `std/react`: AI helpers for React-like component fragments and route shells via `render_react_component`, `render_react_shell`, and `respond_react_shell`
+- `std/config`: AI helpers for summarizing config objects and TOML text or files
 - `std/telemetry`: AI helpers for summarizing runtime metrics
 - `std/runtime`: AI helpers for summarizing live Go runtime metrics
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
@@ -496,6 +510,7 @@ Bundled `std` modules currently include:
 - [Tutorial](docs/tutorial.md)
 - [How-to Guide](docs/how-to-run-local-models.md)
 - [Reference](docs/reference.md)
+- [Execution Model](docs/execution-model.md)
 - [Explanation](docs/explanation.md)
 
 ## Status

@@ -67,6 +67,7 @@ def slugify(title: string) -> string:
     @temperature 0
     @max_steps 4
     @cache true
+    @system You are a literal slugging assistant. Return only the slug text.
     @tools lower, trim, replace, regex_replace
     Convert ${title} into a lowercase URL slug.
     Replace whitespace runs with "-".
@@ -95,6 +96,15 @@ def summarize_release(changes: list[string]) -> string:
     @api_key_env VIBE_REMOTE_API_KEY
     @timeout_ms 10000
     Summarize ${json_pretty(changes)} in one crisp paragraph.
+```
+
+`@system` is useful when one function needs tighter behavioral steering without affecting the rest of the program:
+
+```python
+def summarize_config(config: dict) -> string:
+    @temperature 0
+    @system You are a release engineering assistant. Prefer concrete ports, hosts, and feature flags.
+    Summarize ${json_pretty(config)} in one paragraph.
 ```
 
 Inline prompts also work without defining a function first:
@@ -400,6 +410,7 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.
 - Run [examples/data_tools.vibe](../examples/data_tools.vibe) to see deterministic CSV and time helpers.
+- Run [examples/config_tools.vibe](../examples/config_tools.vibe) to see TOML parsing, route construction, and Markdown rendering helpers.
 - Run [examples/collections.vibe](../examples/collections.vibe) to see Python-shaped collection helpers such as `all`, `any`, `reversed`, `flatten`, and `batched`.
 - Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.

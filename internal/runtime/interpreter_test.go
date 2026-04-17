@@ -912,6 +912,48 @@ print(normalize("berlin"))
 	}
 }
 
+func TestInterpreterAIDirectivesAppendCustomSystemPrompt(t *testing.T) {
+	source := `def summarize(city: string) -> string:
+    @system You are a terse weather execution specialist. Keep weather wording concrete and concise.
+    Return one short weather sentence about ${city}.
+
+print(summarize("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"Berlin stays mild and bright today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin stays mild and bright today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin stays mild and bright today.\n", stdout.String())
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("expected 1 model request, got %d", len(client.requests))
+	}
+	if !strings.Contains(client.requests[0].System, "You are the execution engine for vibelang.") {
+		t.Fatalf("system prompt dropped the runtime execution guidance:\n%s", client.requests[0].System)
+	}
+	if !strings.Contains(client.requests[0].System, "You are a terse weather execution specialist.") {
+		t.Fatalf("system prompt did not include the custom directive:\n%s", client.requests[0].System)
+	}
+}
+
 func TestInterpreterAIDirectivesRouteModelClientAndReuseConfiguredClient(t *testing.T) {
 	t.Setenv("VIBE_REMOTE_API_KEY", "secret-token")
 
@@ -1163,6 +1205,32 @@ print(regex_replace("[0-9]+", "go123lang", "-"))
 	}
 }
 
+func TestInterpreterSupportsMarkdownAndRouteBuildHelpers(t *testing.T) {
+	source := `html = markdown_to_html("# Hello\n\n- one\n- two\n")
+route = route_build("/users/:id/files/*path", {"id": "42", "path": "docs/readme.md"}, {"tab": "preview", "mode": "full"})
+
+print(contains(html, "<h1>Hello</h1>"))
+print(contains(html, "<li>one</li>"))
+print(route)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "true\ntrue\n/users/42/files/docs/readme.md?mode=full&tab=preview\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
 func TestInterpreterSupportsCSVTimeAndUUIDBuiltins(t *testing.T) {
 	source := `rows = csv_parse("name,role\nAda,builder\nGrace,scientist\n")
 matrix = csv_parse("a,b\nc,d\n", header=false)
@@ -1231,6 +1299,41 @@ print(uuid_v7())
 	uuidV7Pattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	if !uuidV7Pattern.MatchString(lines[15]) {
 		t.Fatalf("unexpected uuid_v7 output: %q", lines[15])
+	}
+}
+
+func TestInterpreterProvidesTOMLBuiltins(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	source := fmt.Sprintf(`data = {"title": "vibelang", "enabled": true, "ports": [8080, 8081], "server": {"host": "127.0.0.1", "port": 8080}}
+write_toml(%q, data)
+parsed = read_toml(%q)
+inline = toml_parse("title = \"Ada\"\n[server]\nport = 9000\n")
+encoded = toml_stringify({"title": "release", "server": {"port": 9090}})
+roundtrip = toml_parse(encoded)
+
+print(parsed["title"])
+print(parsed["enabled"])
+print(parsed["ports"][1])
+print(parsed["server"]["host"])
+print(inline["server"]["port"])
+print(roundtrip["title"])
+print(contains(encoded, "[server]"))
+`, path, path)
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "vibelang\ntrue\n8081\n127.0.0.1\n9000\nrelease\ntrue\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
 

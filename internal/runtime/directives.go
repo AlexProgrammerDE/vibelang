@@ -12,6 +12,7 @@ type aiDirectiveConfig struct {
 	MaxSteps    *int
 	TimeoutMS   *int
 	Cache       *bool
+	System      string
 	AllowTools  map[string]struct{}
 	DenyTools   map[string]struct{}
 	Provider    string
@@ -88,6 +89,17 @@ func applyAIDirective(config *aiDirectiveConfig, line string, lineNumber int) er
 			return fmt.Errorf("directive line %d has invalid @cache value %q", lineNumber, value)
 		}
 		config.Cache = &parsed
+		return nil
+	case "system":
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("directive line %d has invalid @system value %q", lineNumber, value)
+		}
+		if config.System == "" {
+			config.System = trimmed
+		} else {
+			config.System += "\n" + trimmed
+		}
 		return nil
 	case "tools":
 		names, err := parseToolDirectiveNames(value, lineNumber, "@tools")
@@ -202,4 +214,17 @@ func (c aiDirectiveConfig) allowsTool(name string) bool {
 
 func (c aiDirectiveConfig) customModelRoute() bool {
 	return c.TimeoutMS != nil || c.Provider != "" || c.Model != "" || c.Endpoint != "" || c.APIKeyEnv != ""
+}
+
+func composeSystemPrompt(base string, directives aiDirectiveConfig) string {
+	base = strings.TrimSpace(base)
+	custom := strings.TrimSpace(directives.System)
+	switch {
+	case base == "":
+		return custom
+	case custom == "":
+		return base
+	default:
+		return base + "\n\nAdditional system guidance:\n" + custom
+	}
 }

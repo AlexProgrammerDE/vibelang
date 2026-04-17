@@ -151,3 +151,13 @@ jobs:
             printf 'got:\n%s\n' "$output"
             exit 1
           fi
+
+      - name: Run deterministic config tools example
+        run: |
+          output="$(go run ./cmd/vibelang examples/config_tools.vibe)"
+          expected=$'8080\n/users/42/files/docs/readme.md?tab=preview\ntrue\ntrue\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected config_tools.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi

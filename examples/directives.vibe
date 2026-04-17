@@ -2,6 +2,7 @@ def slugify(title: string) -> string:
     @temperature 0
     @max_steps 4
     @tools lower, trim, replace, regex_replace
+    @system You are a literal slugging assistant. Return only the slug text.
     Convert ${title} into a lowercase URL slug.
     Replace whitespace runs with "-".
     Remove punctuation and collapse repeated "-" runs.

@@ -74,10 +74,6 @@ func (m *AIMacro) scope(args map[string]any) map[string]any {
 }
 
 func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *AIMacro, args map[string]any) (any, error) {
-	if i.model == nil {
-		return nil, fmt.Errorf("no model client configured")
-	}
-
 	scope := macro.scope(args)
 	instructions, err := i.renderPromptText(ctx, macro.instructions, scope)
 	if err != nil {
@@ -92,6 +88,10 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 	cacheKey, cacheHit := i.maybeLookupAICache(cacheFunction, instructions, scope, macro.directives)
 	if cacheHit {
 		return cacheKey, nil
+	}
+	modelClient, err := i.modelClientForDirectives(macro.directives)
+	if err != nil {
+		return nil, fmt.Errorf("%s model routing failed: %w", macro.Name(), err)
 	}
 
 	history := make([]ToolEvent, 0)
@@ -116,8 +116,8 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			return nil, err
 		}
 
-		response, err := i.model.Generate(ctx, model.Request{
-			System:      macroSystemPrompt(),
+		response, err := modelClient.Generate(ctx, model.Request{
+			System:      composeSystemPrompt(macroSystemPrompt(), macro.directives),
 			Prompt:      prompt,
 			JSONSchema:  actionSchema,
 			Tools:       modelTools,

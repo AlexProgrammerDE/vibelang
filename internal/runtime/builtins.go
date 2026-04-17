@@ -86,12 +86,14 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("contains", builtinContains, "bool", "Return true when a string contains a substring, a list contains a value, or a dict contains a key.", ast.Param{Name: "container"}, ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_json", builtinReadJSON, "any", "Read a JSON file and decode it into vibelang values.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_yaml", builtinReadYAML, "any", "Read a YAML file and decode it into vibelang values.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("read_toml", builtinReadTOML, "any", "Read a TOML file and decode it into vibelang values.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("write_file", builtinWriteFile, "string", "Write text to a file, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("delete_file", builtinDeleteFile, "bool", "Delete a file. Return true if a file was removed and false if it was already missing.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("make_dir", builtinMakeDir, "string", "Create a directory and any missing parents. Return the created path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("append_file", builtinAppendFile, "string", "Append text to a file, creating it and its parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "content", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, toolBuiltin("write_json", builtinWriteJSON, "string", "Write a value as formatted JSON, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, toolBuiltin("write_yaml", builtinWriteYAML, "string", "Write a value as YAML, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, toolBuiltin("write_toml", builtinWriteTOML, "string", "Write a value as TOML, creating parent directories when needed. Return the written path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "value"}))
 	interpreter.globals.Define("pi", math.Pi)
 	interpreter.globals.Define("e", math.E)
 	registerExtendedBuiltins(interpreter)
@@ -704,6 +706,21 @@ func builtinReadYAML(_ context.Context, _ *Interpreter, args []any) (any, error)
 	return parseYAMLText(string(content))
 }
 
+func builtinReadTOML(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("read_toml", args, 1); err != nil {
+		return nil, err
+	}
+	path, err := requireString("read_toml", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return builtinTOMLParse(context.Background(), nil, []any{string(content)})
+}
+
 func builtinMakeDir(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("make_dir", args, 1); err != nil {
 		return nil, err
@@ -785,6 +802,31 @@ func builtinWriteYAML(_ context.Context, _ *Interpreter, args []any) (any, error
 		encoded = append(encoded, '\n')
 	}
 	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		return nil, err
+	}
+	return path, nil
+}
+
+func builtinWriteTOML(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("write_toml", args, 2); err != nil {
+		return nil, err
+	}
+	path, err := requireString("write_toml", args[0], "path")
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureParentDir(path); err != nil {
+		return nil, err
+	}
+	encoded, err := builtinTOMLStringify(context.Background(), nil, []any{args[1]})
+	if err != nil {
+		return nil, err
+	}
+	text := stringify(encoded)
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		return nil, err
 	}
 	return path, nil

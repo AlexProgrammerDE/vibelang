@@ -1,0 +1,21 @@
+def summarize_config(config: dict, tone: string = "crisp") -> string:
+    @temperature 0
+    @system You are a release engineering assistant. Prefer concrete configuration details over vague language.
+    @tools json_pretty
+    Summarize the configuration object ${json_pretty(config)} in one ${tone} paragraph.
+    Mention services, ports, feature flags, and rollout-relevant settings first.
+
+def summarize_toml(text: string, tone: string = "crisp") -> string:
+    @temperature 0
+    @system You are a configuration reviewer. Focus on what the TOML config actually enables.
+    @tools toml_parse, json_pretty
+    Parse the TOML text with toml_parse.
+    Summarize the configuration in one ${tone} paragraph.
+    Mention services, ports, feature flags, and environment markers first.
+
+def summarize_toml_file(path: string, tone: string = "crisp") -> string:
+    @temperature 0
+    @system You are a configuration reviewer. Prefer exact paths, sections, and concrete settings.
+    @tools read_toml, json_pretty
+    Read the TOML file at ${path} with read_toml.
+    Summarize the configuration in one ${tone} paragraph.

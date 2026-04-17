@@ -972,7 +972,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 		}
 
 		response, err := modelClient.Generate(ctx, model.Request{
-			System:      aiSystemPrompt(),
+			System:      composeSystemPrompt(aiSystemPrompt(), directives),
 			Prompt:      prompt,
 			JSONSchema:  actionSchema,
 			Tools:       modelTools,

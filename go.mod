@@ -4,6 +4,8 @@ go 1.25.4
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/pelletier/go-toml/v2 v2.3.0
+	github.com/yuin/goldmark v1.8.2
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.43.0
 	go.opentelemetry.io/otel/sdk v1.43.0

@@ -47,6 +47,26 @@ type sseEvent struct {
 
 func registerHTTPServerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("route_match", builtinRouteMatch, "dict{matched: bool, params: dict[string, string]}", "Match a request path against a route pattern like /users/:id or /assets/*path and return matched plus any extracted params.", ast.Param{Name: "pattern", Type: ast.TypeRef{Expr: "string"}}, ast.Param{Name: "request_path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "route_build",
+		call: builtinRouteBuild,
+		tool: &ToolSpec{
+			Name:       "route_build",
+			ReturnType: ast.TypeRef{Expr: "string"},
+			Body:       "Build a request path from a route pattern like /users/:id or /assets/*path, plus optional query parameters.",
+			Params: []ast.Param{
+				{Name: "pattern", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "params", Type: ast.TypeRef{Expr: "dict"}, DefaultText: "{}"},
+				{Name: "query", Type: ast.TypeRef{Expr: "dict"}, DefaultText: "{}"},
+			},
+		},
+		defaults: map[string]any{
+			"params": map[string]any{},
+			"query":  map[string]any{},
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, promptToolBuiltin("mime_type", builtinMimeType, "string", "Guess the HTTP content type for a file path, including application/wasm for WebAssembly modules.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("cookie_parse", builtinCookieParse, "dict[string, string]", "Parse one HTTP Cookie header into a dict of cookie names and values.", ast.Param{Name: "header", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, &builtinFunction{
@@ -191,6 +211,33 @@ func builtinRouteMatch(_ context.Context, _ *Interpreter, args []any) (any, erro
 		"matched": matched,
 		"params":  params,
 	}, nil
+}
+
+func builtinRouteBuild(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("route_build", args, 3); err != nil {
+		return nil, err
+	}
+	pattern, err := requireString("route_build", args[0], "pattern")
+	if err != nil {
+		return nil, err
+	}
+	params, ok := asMap(args[1])
+	if !ok {
+		return nil, fmt.Errorf("route_build expects params to be a dict")
+	}
+	query, ok := asMap(args[2])
+	if !ok {
+		return nil, fmt.Errorf("route_build expects query to be a dict")
+	}
+
+	path, err := buildRoutePath(pattern, params)
+	if err != nil {
+		return nil, err
+	}
+	if encoded := encodeQuery(query); encoded != "" {
+		return path + "?" + encoded, nil
+	}
+	return path, nil
 }
 
 func builtinMimeType(_ context.Context, _ *Interpreter, args []any) (any, error) {
@@ -1150,6 +1197,57 @@ func routeMatch(pattern, requestPath string) (bool, map[string]any) {
 		return false, map[string]any{}
 	}
 	return true, params
+}
+
+func buildRoutePath(pattern string, params map[string]any) (string, error) {
+	if pattern == "" {
+		return "", nil
+	}
+	if pattern == "/" {
+		return "/", nil
+	}
+
+	leadingSlash := strings.HasPrefix(pattern, "/")
+	segments := strings.Split(strings.TrimPrefix(pattern, "/"), "/")
+	built := make([]string, 0, len(segments))
+
+	for _, segment := range segments {
+		if segment == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(segment, ":"):
+			name := strings.TrimPrefix(segment, ":")
+			value, ok := params[name]
+			if !ok {
+				return "", fmt.Errorf("route_build missing route param %q", name)
+			}
+			built = append(built, url.PathEscape(stringify(value)))
+		case strings.HasPrefix(segment, "*"):
+			name := strings.TrimPrefix(segment, "*")
+			value, ok := params[name]
+			if !ok {
+				return "", fmt.Errorf("route_build missing wildcard route param %q", name)
+			}
+			for _, part := range strings.Split(strings.TrimPrefix(stringify(value), "/"), "/") {
+				if part == "" {
+					continue
+				}
+				built = append(built, url.PathEscape(part))
+			}
+		default:
+			built = append(built, segment)
+		}
+	}
+
+	path := strings.Join(built, "/")
+	if leadingSlash {
+		path = "/" + path
+	}
+	if path == "" && leadingSlash {
+		return "/", nil
+	}
+	return path, nil
 }
 
 func splitRouteSegments(raw string) []string {

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	toml "github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 
 	"vibelang/internal/ast"
@@ -18,6 +19,7 @@ import (
 func registerDataBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("json_parse", builtinJSONParse, "any", "Parse a JSON string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("yaml_parse", builtinYAMLParse, "any", "Parse a YAML string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, promptToolBuiltin("toml_parse", builtinTOMLParse, "any", "Parse a TOML string into vibelang values.", ast.Param{Name: "text", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "csv_parse",
 		call: builtinCSVParse,
@@ -75,6 +77,7 @@ func registerDataBuiltins(interpreter *Interpreter) {
 		promptSafe: true,
 	})
 	registerBuiltin(interpreter, promptToolBuiltin("yaml_stringify", builtinYAMLStringify, "string", "Encode a value as YAML.", ast.Param{Name: "value"}))
+	registerBuiltin(interpreter, promptToolBuiltin("toml_stringify", builtinTOMLStringify, "string", "Encode a value as TOML.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("set", builtinSet, "set", "Create a set from the given list of values.", ast.Param{Name: "values", Type: ast.TypeRef{Expr: "list"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("set_values", builtinSetValues, "list", "Return the sorted values from a set.", ast.Param{Name: "set", Type: ast.TypeRef{Expr: "set"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("set_has", builtinSetHas, "bool", "Return true when a set contains the given value.", ast.Param{Name: "set", Type: ast.TypeRef{Expr: "set"}}, ast.Param{Name: "value"}))
@@ -258,6 +261,22 @@ func builtinCSVParse(_ context.Context, _ *Interpreter, args []any) (any, error)
 	return rows, nil
 }
 
+func builtinTOMLParse(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("toml_parse", args, 1); err != nil {
+		return nil, err
+	}
+	text, err := requireString("toml_parse", args[0], "text")
+	if err != nil {
+		return nil, err
+	}
+
+	var value any
+	if err := toml.Unmarshal([]byte(text), &value); err != nil {
+		return nil, err
+	}
+	return normalizeTOMLValue(value), nil
+}
+
 func builtinJSONPretty(_ context.Context, _ *Interpreter, args []any) (any, error) {
 	if err := expectArgCount("json_pretty", args, 2); err != nil {
 		return nil, err
@@ -416,6 +435,21 @@ func builtinYAMLStringify(_ context.Context, _ *Interpreter, args []any) (any, e
 	return string(encoded), nil
 }
 
+func builtinTOMLStringify(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("toml_stringify", args, 1); err != nil {
+		return nil, err
+	}
+	marshaled, err := marshalTOMLValue(args[0])
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := toml.Marshal(marshaled)
+	if err != nil {
+		return nil, err
+	}
+	return string(encoded), nil
+}
+
 func parseYAMLText(text string) (any, error) {
 	var value any
 	if err := yaml.Unmarshal([]byte(text), &value); err != nil {
@@ -450,6 +484,64 @@ func normalizeYAMLValue(value any) any {
 		normalized := make([]any, 0, len(typed))
 		for _, item := range typed {
 			normalized = append(normalized, normalizeYAMLValue(item))
+		}
+		return normalized
+	default:
+		return normalizeJSONValue(value)
+	}
+}
+
+func marshalTOMLValue(value any) (any, error) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, fmt.Errorf("toml values cannot contain none")
+	case string, bool:
+		return typed, nil
+	case int:
+		return int64(typed), nil
+	case int64:
+		return typed, nil
+	case float64:
+		return typed, nil
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for key, item := range typed {
+			converted, err := marshalTOMLValue(item)
+			if err != nil {
+				return nil, fmt.Errorf("toml field %q: %w", key, err)
+			}
+			result[key] = converted
+		}
+		return result, nil
+	case []any:
+		result := make([]any, 0, len(typed))
+		for index, item := range typed {
+			converted, err := marshalTOMLValue(item)
+			if err != nil {
+				return nil, fmt.Errorf("toml item %d: %w", index, err)
+			}
+			result = append(result, converted)
+		}
+		return result, nil
+	case *SetValue:
+		return marshalTOMLValue(typed.Values())
+	default:
+		return nil, fmt.Errorf("toml cannot encode values of type %s", typeName(value))
+	}
+}
+
+func normalizeTOMLValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		normalized := make(map[string]any, len(typed))
+		for key, item := range typed {
+			normalized[key] = normalizeTOMLValue(item)
+		}
+		return normalized
+	case []any:
+		normalized := make([]any, 0, len(typed))
+		for _, item := range typed {
+			normalized = append(normalized, normalizeTOMLValue(item))
 		}
 		return normalized
 	default:

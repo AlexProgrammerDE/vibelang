@@ -1,0 +1,9 @@
+config = toml_parse("title = \"vibelang\"\n[server]\nport = 8080\n")
+route = route_build("/users/:id/files/*path", {"id": "42", "path": "docs/readme.md"}, {"tab": "preview"})
+html = markdown_to_html("# Release Notes\n\n- shipped\n")
+encoded = toml_stringify({"title": "release", "server": {"port": 9090}})
+
+print(config["server"]["port"])
+print(route)
+print(contains(html, "<li>shipped</li>"))
+print(contains(encoded, "[server]"))
