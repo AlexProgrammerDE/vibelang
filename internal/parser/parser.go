@@ -105,6 +105,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return p.parseMatch(indent)
 	case lexer.TokenWhile:
 		return p.parseWhile(indent)
+	case lexer.TokenTry:
+		return p.parseTry(indent)
 	case lexer.TokenFor:
 		return p.parseFor(indent)
 	case lexer.TokenBreak:
@@ -129,6 +131,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return nil, fmt.Errorf("line %d: %s without matching if", line.Number, line.Tokens[0].Lexeme)
 	case lexer.TokenCase:
 		return nil, fmt.Errorf("line %d: case without matching match", line.Number)
+	case lexer.TokenExcept, lexer.TokenFinally:
+		return nil, fmt.Errorf("line %d: %s without matching try", line.Number, line.Tokens[0].Lexeme)
 	default:
 		return p.parseSimpleStatement()
 	}
@@ -681,6 +685,113 @@ func (p *Parser) parseWhile(indent int) (ast.Stmt, error) {
 		Condition: condition,
 		Body:      body,
 	}, nil
+}
+
+func (p *Parser) parseTry(indent int) (ast.Stmt, error) {
+	line := p.lines[p.index]
+	if len(line.Tokens) != 2 || line.Tokens[1].Kind != lexer.TokenColon {
+		return nil, fmt.Errorf("line %d: try must end with ':'", line.Number)
+	}
+
+	p.index++
+	bodyIndent, ok, err := p.findCodeChildIndent(indent)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("line %d: try block is required", line.Number)
+	}
+
+	body, err := p.parseStatements(bodyIndent)
+	if err != nil {
+		return nil, err
+	}
+
+	var errorName string
+	var exceptBody []ast.Stmt
+	var finallyBody []ast.Stmt
+
+	next, ok := p.peekCodeLine()
+	if ok && next.Indent == indent && len(next.Tokens) > 0 && next.Tokens[0].Kind == lexer.TokenExcept {
+		errorName, exceptBody, err = p.parseExcept(indent)
+		if err != nil {
+			return nil, err
+		}
+		next, ok = p.peekCodeLine()
+	}
+
+	if ok && next.Indent == indent && len(next.Tokens) > 0 && next.Tokens[0].Kind == lexer.TokenFinally {
+		finallyBody, err = p.parseFinally(indent)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if len(exceptBody) == 0 && len(finallyBody) == 0 {
+		return nil, fmt.Errorf("line %d: try requires except and/or finally", line.Number)
+	}
+
+	return &ast.TryStmt{
+		Line:      line.Number,
+		Body:      body,
+		ErrorName: errorName,
+		Except:    exceptBody,
+		Finally:   finallyBody,
+	}, nil
+}
+
+func (p *Parser) parseExcept(indent int) (string, []ast.Stmt, error) {
+	line := p.lines[p.index]
+	cursor := newLineCursor(line.Tokens)
+	if _, err := cursor.expect(lexer.TokenExcept); err != nil {
+		return "", nil, err
+	}
+
+	errorName := ""
+	if !cursor.match(lexer.TokenColon) {
+		name, err := cursor.expect(lexer.TokenIdentifier)
+		if err != nil {
+			return "", nil, err
+		}
+		errorName = name.Lexeme
+		if _, err := cursor.expect(lexer.TokenColon); err != nil {
+			return "", nil, err
+		}
+	}
+	if !cursor.done() {
+		return "", nil, fmt.Errorf("line %d: unexpected token %q", line.Number, cursor.peek().Lexeme)
+	}
+
+	p.index++
+	bodyIndent, ok, err := p.findCodeChildIndent(indent)
+	if err != nil {
+		return "", nil, err
+	}
+	if !ok {
+		return "", nil, fmt.Errorf("line %d: except block is required", line.Number)
+	}
+	body, err := p.parseStatements(bodyIndent)
+	if err != nil {
+		return "", nil, err
+	}
+	return errorName, body, nil
+}
+
+func (p *Parser) parseFinally(indent int) ([]ast.Stmt, error) {
+	line := p.lines[p.index]
+	if len(line.Tokens) != 2 || line.Tokens[1].Kind != lexer.TokenColon {
+		return nil, fmt.Errorf("line %d: finally must end with ':'", line.Number)
+	}
+
+	p.index++
+	bodyIndent, ok, err := p.findCodeChildIndent(indent)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("line %d: finally block is required", line.Number)
+	}
+	return p.parseStatements(bodyIndent)
 }
 
 func (p *Parser) parseFor(indent int) (ast.Stmt, error) {

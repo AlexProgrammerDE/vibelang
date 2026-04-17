@@ -38,6 +38,8 @@ func TestOllamaClientUsesChatAPIWithSchema(t *testing.T) {
 		JSONSchema: map[string]any{
 			"type": "object",
 		},
+		Temperature: func() *float64 { value := 0.0; return &value }(),
+		MaxTokens:   func() *int { value := 32; return &value }(),
 	})
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
@@ -65,6 +67,13 @@ func TestOllamaClientUsesChatAPIWithSchema(t *testing.T) {
 	format, ok := payload["format"].(map[string]any)
 	if !ok || format["type"] != "object" {
 		t.Fatalf("expected JSON schema format, got %#v", payload["format"])
+	}
+	options, ok := payload["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options, got %#v", payload["options"])
+	}
+	if options["temperature"] != float64(0) || options["num_predict"] != float64(32) {
+		t.Fatalf("expected request overrides in ollama payload, got %#v", options)
 	}
 }
 
@@ -98,6 +107,8 @@ func TestLlamaCPPClientUsesChatCompletionsResponseFormat(t *testing.T) {
 		JSONSchema: map[string]any{
 			"type": "object",
 		},
+		Temperature: func() *float64 { value := 0.0; return &value }(),
+		MaxTokens:   func() *int { value := 48; return &value }(),
 	})
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
@@ -121,6 +132,9 @@ func TestLlamaCPPClientUsesChatCompletionsResponseFormat(t *testing.T) {
 	}
 	if _, ok := responseFormat["schema"].(map[string]any); !ok {
 		t.Fatalf("expected response_format schema, got %#v", responseFormat)
+	}
+	if payload["temperature"] != float64(0) || payload["max_tokens"] != float64(48) {
+		t.Fatalf("expected request overrides in llama.cpp payload, got %#v", payload)
 	}
 }
 
@@ -157,6 +171,8 @@ func TestOpenAICompatibleClientUsesChatCompletionsWithSchema(t *testing.T) {
 		JSONSchema: map[string]any{
 			"type": "object",
 		},
+		Temperature: func() *float64 { value := 0.0; return &value }(),
+		MaxTokens:   func() *int { value := 24; return &value }(),
 	})
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
@@ -185,5 +201,8 @@ func TestOpenAICompatibleClientUsesChatCompletionsWithSchema(t *testing.T) {
 	}
 	if _, ok := jsonSchema["schema"].(map[string]any); !ok {
 		t.Fatalf("expected schema payload, got %#v", jsonSchema["schema"])
+	}
+	if payload["temperature"] != float64(0) || payload["max_tokens"] != float64(24) {
+		t.Fatalf("expected request overrides in openai-compatible payload, got %#v", payload)
 	}
 }

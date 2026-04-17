@@ -159,7 +159,10 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 		if err != nil {
 			return signalNone, err
 		}
-		function := NewAIFunction(node, defaults, env.SnapshotValues())
+		function, err := NewAIFunction(node, defaults, env.SnapshotValues())
+		if err != nil {
+			return signalNone, err
+		}
 		env.Define(node.Name, function)
 		i.registerFunction(function)
 		return signalNone, nil
@@ -168,7 +171,11 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 		if err != nil {
 			return signalNone, err
 		}
-		env.Define(node.Name, NewAIMacro(node, defaults, env.SnapshotValues()))
+		macro, err := NewAIMacro(node, defaults, env.SnapshotValues())
+		if err != nil {
+			return signalNone, err
+		}
+		env.Define(node.Name, macro)
 		return signalNone, nil
 	case *ast.ImportStmt:
 		if err := i.executeImport(ctx, env, moduleDir, node); err != nil {
@@ -242,6 +249,8 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 				continue
 			}
 		}
+	case *ast.TryStmt:
+		return i.executeTryStatement(ctx, env, node, moduleDir)
 	case *ast.ForStmt:
 		iterable, err := i.evaluateExpression(ctx, env, node.Iterable)
 		if err != nil {
@@ -275,6 +284,39 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 	default:
 		return signalNone, fmt.Errorf("unsupported statement type %T", statement)
 	}
+}
+
+func (i *Interpreter) executeTryStatement(ctx context.Context, env *Environment, statement *ast.TryStmt, moduleDir string) (controlSignal, error) {
+	signal, err := i.executeBlock(ctx, env, statement.Body, moduleDir)
+	if err != nil {
+		if len(statement.Except) == 0 {
+			return i.executeFinally(ctx, env, statement.Finally, moduleDir, signalNone, err)
+		}
+		if statement.ErrorName != "" {
+			env.Set(statement.ErrorName, err.Error())
+		}
+		signal, err = i.executeBlock(ctx, env, statement.Except, moduleDir)
+		if err != nil {
+			return i.executeFinally(ctx, env, statement.Finally, moduleDir, signalNone, err)
+		}
+		return i.executeFinally(ctx, env, statement.Finally, moduleDir, signal, nil)
+	}
+
+	return i.executeFinally(ctx, env, statement.Finally, moduleDir, signal, nil)
+}
+
+func (i *Interpreter) executeFinally(ctx context.Context, env *Environment, body []ast.Stmt, moduleDir string, priorSignal controlSignal, priorErr error) (controlSignal, error) {
+	if len(body) == 0 {
+		return priorSignal, priorErr
+	}
+	finalSignal, err := i.executeBlock(ctx, env, body, moduleDir)
+	if err != nil {
+		return signalNone, err
+	}
+	if finalSignal != signalNone {
+		return finalSignal, nil
+	}
+	return priorSignal, priorErr
 }
 
 func (i *Interpreter) assignValue(ctx context.Context, env *Environment, target ast.Expr, value any) error {
@@ -754,7 +796,11 @@ func sliceString(runes []rune, start, end, step int) string {
 }
 
 func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environment, prompt *ast.PromptExpr, returnType string) (any, error) {
-	instructions, err := i.renderPromptText(ctx, prompt.Text, env.SnapshotValues())
+	settings, body, err := parseAIBody(prompt.Text)
+	if err != nil {
+		return nil, err
+	}
+	instructions, err := i.renderPromptText(ctx, body, env.SnapshotValues())
 	if err != nil {
 		return nil, err
 	}
@@ -765,21 +811,23 @@ func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environme
 			ReturnType: ast.TypeRef{Expr: returnType},
 			Body:       prompt.Text,
 		},
-		defaults: map[string]any{},
+		defaults:     map[string]any{},
+		instructions: body,
+		directives:   settings,
 	}
-	return i.invokeAITask(ctx, task, env.SnapshotValues(), instructions, 0, "", nil)
+	return i.invokeAITask(ctx, task, env.SnapshotValues(), instructions, 0, "", nil, settings)
 }
 
 func (i *Interpreter) invokeAIFunction(ctx context.Context, function *AIFunction, args map[string]any, depth int, chain []aiCallFrame) (any, error) {
 	scope := function.scope(args)
-	instructions, err := i.renderPromptText(ctx, function.Def.Body, scope)
+	instructions, err := i.renderPromptText(ctx, function.instructions, scope)
 	if err != nil {
 		return nil, err
 	}
-	return i.invokeAITask(ctx, function, scope, instructions, depth, function.Name(), extendAIChain(chain, function.Name(), args))
+	return i.invokeAITask(ctx, function, scope, instructions, depth, function.Name(), extendAIChain(chain, function.Name(), args), function.directives)
 }
 
-func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string, chain []aiCallFrame) (any, error) {
+func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string, chain []aiCallFrame, directives aiDirectiveConfig) (any, error) {
 	if i.model == nil {
 		return nil, fmt.Errorf("no model client configured")
 	}
@@ -788,18 +836,24 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 	}
 
 	history := make([]ToolEvent, 0)
-	tools := i.toolSpecs(excludeTool)
+	tools := i.toolSpecs(excludeTool, directives)
+	maxSteps := i.maxAISteps
+	if directives.MaxSteps != nil {
+		maxSteps = *directives.MaxSteps
+	}
 
-	for step := 0; step < i.maxAISteps; step++ {
+	for step := 0; step < maxSteps; step++ {
 		prompt, err := buildPrompt(function, instructions, args, tools, history)
 		if err != nil {
 			return nil, err
 		}
 
 		response, err := i.model.Generate(ctx, model.Request{
-			System:     aiSystemPrompt(),
-			Prompt:     prompt,
-			JSONSchema: aiActionSchema(),
+			System:      aiSystemPrompt(),
+			Prompt:      prompt,
+			JSONSchema:  aiActionSchema(),
+			Temperature: directives.Temperature,
+			MaxTokens:   directives.MaxTokens,
 		})
 		i.incrementMetric("ai_model_requests_total", 1)
 		if err != nil {
@@ -844,9 +898,13 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			if err != nil {
 				return nil, err
 			}
-			i.incrementMetric("ai_tool_calls_total", 1)
-			i.tracef("%s calling %s with %s", function.Name(), action.Call.Name, jsonString(bound))
-			if rejection := rejectAIToolCall(action.Call.Name, bound, excludeTool, chain); rejection != "" {
+			rejection := ""
+			if !directives.allowsTool(action.Call.Name) {
+				rejection = fmt.Sprintf("the helper %s is not enabled for this AI function", action.Call.Name)
+			} else {
+				rejection = rejectAIToolCall(action.Call.Name, bound, excludeTool, chain)
+			}
+			if rejection != "" {
 				if repeatedRejectedToolCall(history, action.Call.Name, bound) {
 					i.incrementMetric("ai_tool_call_retries_blocked_total", 1)
 					return nil, fmt.Errorf("%s repeatedly requested the rejected helper %s(%s): %s", function.Name(), action.Call.Name, jsonString(bound), rejection)
@@ -861,6 +919,8 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 				})
 				continue
 			}
+			i.incrementMetric("ai_tool_calls_total", 1)
+			i.tracef("%s calling %s with %s", function.Name(), action.Call.Name, jsonString(bound))
 			result, err := i.invokeTool(ctx, callee, bound, depth+1, chain)
 			if err != nil {
 				i.incrementMetric("ai_tool_call_errors_total", 1)
@@ -876,7 +936,7 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 		}
 	}
 
-	return nil, fmt.Errorf("%s exceeded the maximum AI tool steps of %d", function.Name(), i.maxAISteps)
+	return nil, fmt.Errorf("%s exceeded the maximum AI tool steps of %d", function.Name(), maxSteps)
 }
 
 func (i *Interpreter) invokeTool(ctx context.Context, callable ToolCallable, bound map[string]any, depth int, chain []aiCallFrame) (any, error) {

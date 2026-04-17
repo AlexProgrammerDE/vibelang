@@ -10,9 +10,11 @@
 - Supports module loading with `import "./module.vibe" as module` and `from "./module.vibe" import helper`.
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
+- Supports leading AI directives such as `@temperature`, `@max_tokens`, `@max_steps`, `@tools`, and `@deny_tools` inside function and macro bodies.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns.
+- Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
@@ -106,6 +108,18 @@ Prompt interpolation is expression-aware, not just name-aware:
 def explain_file(path: string, digits: string, tone: string = "matter-of-fact") -> string:
     Write one ${tone} sentence about ${basename(path)} inside ${dirname(path)}.
     Mention that ${digits} has ${len(digits)} characters.
+```
+
+AI bodies can also declare execution controls up front:
+
+```python
+def slugify(title: string) -> string:
+    @temperature 0
+    @max_steps 4
+    @tools lower, trim, replace, regex_replace
+    Convert ${title} into a lowercase URL slug.
+    Replace whitespace runs with "-".
+    Remove punctuation and collapse repeated "-" runs.
 ```
 
 Slices are first-class expressions:
@@ -224,6 +238,17 @@ print(response["status"])
 http_server_stop(server["handle"])
 ```
 
+Deterministic code can recover from runtime errors without dropping back to the host shell:
+
+```python
+try:
+    fail("simulated failure")
+except err:
+    print(err)
+finally:
+    print("cleanup complete")
+```
+
 ## Project Layout
 
 - `cmd/vibelang`: CLI entrypoint.
@@ -241,7 +266,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 
 - Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`
 - Data: `json_parse`, `json_pretty`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `sorted`, `unique`, `sum`, `min`, `max`
-- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`
+- Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `socket_open`, `socket_write`, `socket_read`, `socket_close`

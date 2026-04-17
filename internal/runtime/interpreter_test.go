@@ -21,11 +21,13 @@ import (
 type scriptedClient struct {
 	responses []string
 	prompts   []string
+	requests  []model.Request
 	index     int
 }
 
 func (c *scriptedClient) Generate(_ context.Context, request model.Request) (model.Response, error) {
 	c.prompts = append(c.prompts, request.Prompt)
+	c.requests = append(c.requests, request)
 	if c.index >= len(c.responses) {
 		return model.Response{}, errors.New("unexpected model call")
 	}
@@ -530,6 +532,156 @@ print(summarize_weather("Berlin"))
 	}
 	if !strings.Contains(err.Error(), "repeatedly requested the rejected helper") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterpreterAIDirectivesLimitToolsAndOverrideModelRequest(t *testing.T) {
+	source := `def normalize(city: string) -> string:
+    @temperature 0
+    @max_tokens 64
+    @max_steps 3
+    @tools upper
+    Turn ${city} into uppercase text.
+
+print(normalize("berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"read_file","arguments":{"path":"ignored.txt"}}}`,
+			`{"action":"call","call":{"name":"upper","arguments":{"text":"berlin"}}}`,
+			`{"action":"return","value":"BERLIN"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN\n", stdout.String())
+	}
+	if len(client.requests) != 3 {
+		t.Fatalf("expected 3 model requests, got %d", len(client.requests))
+	}
+	if client.requests[0].Temperature == nil || *client.requests[0].Temperature != 0 {
+		t.Fatalf("expected per-function temperature override, got %#v", client.requests[0].Temperature)
+	}
+	if client.requests[0].MaxTokens == nil || *client.requests[0].MaxTokens != 64 {
+		t.Fatalf("expected per-function max token override, got %#v", client.requests[0].MaxTokens)
+	}
+	if strings.Contains(client.prompts[0], "read_file(path: string)") {
+		t.Fatalf("prompt unexpectedly exposed filtered helper:\n%s", client.prompts[0])
+	}
+	if !strings.Contains(client.prompts[0], "upper(text: string) -> string") {
+		t.Fatalf("prompt did not include allowlisted helper:\n%s", client.prompts[0])
+	}
+	if !strings.Contains(client.prompts[1], "the helper read_file is not enabled for this AI function") {
+		t.Fatalf("expected rejection history in second prompt:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterAIDirectivesOverrideMaxSteps(t *testing.T) {
+	source := `def normalize(city: string) -> string:
+    @max_steps 1
+    @tools upper
+    Turn ${city} into uppercase text.
+
+print(normalize("berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"upper","arguments":{"text":"berlin"}}}`,
+		},
+	}
+
+	interpreter := NewInterpreter(Config{Model: client})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if !strings.Contains(err.Error(), "maximum AI tool steps of 1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterpreterTryExceptFinally(t *testing.T) {
+	source := `try:
+    fail("boom")
+except err:
+    print(err)
+finally:
+    print("done")
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "boom\ndone\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterTextBuiltins(t *testing.T) {
+	source := `print(base64_encode("hello"))
+print(base64_decode("aGVsbG8="))
+print(url_encode("hello world?"))
+print(url_decode("hello+world%3F"))
+print(sha256("abc"))
+print(regex_match("b.", "abc"))
+print(regex_find_all("[a-z]+", "go123lang"))
+print(regex_replace("[0-9]+", "go123lang", "-"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := strings.Join([]string{
+		"aGVsbG8=",
+		"hello",
+		"hello+world%3F",
+		"hello world?",
+		"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		"true",
+		`["go","lang"]`,
+		"go-lang",
+		"",
+	}, "\n")
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
 	}
 }
 

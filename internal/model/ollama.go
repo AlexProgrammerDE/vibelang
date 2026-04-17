@@ -85,8 +85,8 @@ func (c *ollamaClient) generateChat(ctx context.Context, request Request) (strin
 		Stream:   false,
 		Format:   ollamaFormat(request.JSONSchema),
 		Options: map[string]any{
-			"temperature": c.config.Temperature,
-			"num_predict": c.config.MaxTokens,
+			"temperature": c.temperature(request),
+			"num_predict": c.maxTokens(request),
 		},
 	}
 
@@ -143,8 +143,8 @@ func (c *ollamaClient) generateLegacyPrompt(ctx context.Context, request Request
 		Format: ollamaFormat(request.JSONSchema),
 		Raw:    true,
 		Options: map[string]any{
-			"temperature": c.config.Temperature,
-			"num_predict": c.config.MaxTokens,
+			"temperature": c.temperature(request),
+			"num_predict": c.maxTokens(request),
 		},
 	}
 
@@ -193,4 +193,18 @@ func ollamaFormat(schema map[string]any) any {
 		return "json"
 	}
 	return schema
+}
+
+func (c *ollamaClient) temperature(request Request) float64 {
+	if request.Temperature != nil {
+		return *request.Temperature
+	}
+	return c.config.Temperature
+}
+
+func (c *ollamaClient) maxTokens(request Request) int {
+	if request.MaxTokens != nil {
+		return *request.MaxTokens
+	}
+	return c.config.MaxTokens
 }

@@ -60,12 +60,14 @@ func (b *builtinFunction) ToolSpec() ToolSpec {
 }
 
 type AIFunction struct {
-	Def      *ast.FunctionDef
-	defaults map[string]any
-	captured map[string]any
+	Def          *ast.FunctionDef
+	defaults     map[string]any
+	captured     map[string]any
+	instructions string
+	directives   aiDirectiveConfig
 }
 
-func NewAIFunction(def *ast.FunctionDef, defaults map[string]any, captured map[string]any) *AIFunction {
+func NewAIFunction(def *ast.FunctionDef, defaults map[string]any, captured map[string]any) (*AIFunction, error) {
 	copiedDefaults := make(map[string]any, len(defaults))
 	for name, value := range defaults {
 		copiedDefaults[name] = cloneValue(value)
@@ -74,11 +76,17 @@ func NewAIFunction(def *ast.FunctionDef, defaults map[string]any, captured map[s
 	for name, value := range captured {
 		copiedCaptured[name] = cloneValue(value)
 	}
-	return &AIFunction{
-		Def:      def,
-		defaults: copiedDefaults,
-		captured: copiedCaptured,
+	directives, instructions, err := parseAIBody(def.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", def.Name, err)
 	}
+	return &AIFunction{
+		Def:          def,
+		defaults:     copiedDefaults,
+		captured:     copiedCaptured,
+		instructions: instructions,
+		directives:   directives,
+	}, nil
 }
 
 func (f *AIFunction) Name() string {
@@ -90,7 +98,7 @@ func (f *AIFunction) ToolSpec() ToolSpec {
 		Name:       f.Def.Name,
 		Params:     f.Def.Params,
 		ReturnType: f.Def.ReturnType,
-		Body:       f.Def.Body,
+		Body:       f.instructions,
 	}
 }
 

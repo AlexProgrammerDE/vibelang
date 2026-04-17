@@ -60,6 +60,17 @@ print(greet("Ada"))
 print(greet(name="Ada", tone="playful"))
 ```
 
+When you need tighter control over the AI runtime, put directives at the top of the body:
+
+```python
+def slugify(title: string) -> string:
+    @temperature 0
+    @max_steps 4
+    @tools lower, trim, replace, regex_replace
+    Convert ${title} into a lowercase URL slug.
+    Replace whitespace runs with "-".
+```
+
 Inline prompts also work without defining a function first:
 
 ```python
@@ -167,6 +178,17 @@ packet = channel_select([first, second], timeout_ms=10)
 print(packet["value"])
 ```
 
+Deterministic code can catch runtime failures:
+
+```python
+try:
+    fail("simulated failure")
+except err:
+    print(err)
+finally:
+    print("cleanup complete")
+```
+
 ## 4. Run It
 
 With Ollama:
@@ -224,3 +246,5 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
+- Run [examples/directives.vibe](../examples/directives.vibe) to see per-function AI directives.
+- Run [examples/error_handling.vibe](../examples/error_handling.vibe) to see `try` / `except` / `finally` and text helpers.

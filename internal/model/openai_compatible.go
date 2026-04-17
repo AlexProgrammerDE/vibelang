@@ -92,8 +92,8 @@ func (c *openAICompatibleClient) generateChatCompletion(ctx context.Context, req
 	payload := openAIChatRequest{
 		Model:          c.config.Model,
 		Messages:       messages,
-		MaxTokens:      c.config.MaxTokens,
-		Temperature:    c.config.Temperature,
+		MaxTokens:      c.maxTokens(request),
+		Temperature:    c.temperature(request),
 		Stream:         false,
 		ResponseFormat: responseFormat,
 	}
@@ -189,4 +189,18 @@ func openAIMessageText(content any) (string, error) {
 	default:
 		return "", fmt.Errorf("chat response content had unsupported type %T", content)
 	}
+}
+
+func (c *openAICompatibleClient) temperature(request Request) float64 {
+	if request.Temperature != nil {
+		return *request.Temperature
+	}
+	return c.config.Temperature
+}
+
+func (c *openAICompatibleClient) maxTokens(request Request) int {
+	if request.MaxTokens != nil {
+		return *request.MaxTokens
+	}
+	return c.config.MaxTokens
 }

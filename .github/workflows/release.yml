@@ -41,6 +41,9 @@ jobs:
       - name: Build CLI
         run: go build ./cmd/vibelang
 
+      - name: Smoke CLI version
+        run: go run ./cmd/vibelang --version
+
       - name: Build packages
         run: go build ./...
 
@@ -60,6 +63,8 @@ jobs:
           go run ./cmd/vibelang --check examples/comprehensions.vibe
           go run ./cmd/vibelang --check examples/select.vibe
           go run ./cmd/vibelang --check examples/http_server.vibe
+          go run ./cmd/vibelang --check examples/directives.vibe
+          go run ./cmd/vibelang --check examples/error_handling.vibe
 
       - name: Install GoReleaser
         env:

@@ -128,6 +128,17 @@ type WhileStmt struct {
 func (*WhileStmt) stmtNode()         {}
 func (s *WhileStmt) LineNumber() int { return s.Line }
 
+type TryStmt struct {
+	Line      int
+	Body      []Stmt
+	ErrorName string
+	Except    []Stmt
+	Finally   []Stmt
+}
+
+func (*TryStmt) stmtNode()         {}
+func (s *TryStmt) LineNumber() int { return s.Line }
+
 type ForStmt struct {
 	Line     int
 	Name     string

@@ -15,6 +15,7 @@ import (
 
 func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, &builtinFunction{name: "print", call: builtinPrint})
+	registerBuiltin(interpreter, &builtinFunction{name: "fail", call: builtinFail})
 	registerBuiltin(interpreter, promptToolBuiltin("len", builtinLen, "int", "Return the length of a string, list, or dict.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("str", builtinStr, "string", "Convert any value to a string.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("int", builtinInt, "int", "Convert a value to an integer.", ast.Param{Name: "value"}))
@@ -45,6 +46,7 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("values", builtinValues, "list", "Return the dict values in sorted-key order.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("json", builtinJSON, "string", "Encode a value as JSON.", ast.Param{Name: "value"}))
 	registerDataBuiltins(interpreter)
+	registerTextBuiltins(interpreter)
 	registerBuiltin(interpreter, promptToolBuiltin("cwd", builtinCWD, "string", "Return the current working directory."))
 	registerBuiltin(interpreter, promptToolBuiltin("file_exists", builtinFileExists, "bool", "Return true when the given path exists.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_file", builtinReadFile, "string", "Read a UTF-8 text file and return its contents.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
@@ -112,6 +114,13 @@ func builtinPrint(_ context.Context, interpreter *Interpreter, args []any) (any,
 	}
 	_, err := fmt.Fprintln(interpreter.stdout, joinWithSpace(parts))
 	return nil, err
+}
+
+func builtinFail(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("fail", args, 1); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("%s", stringify(args[0]))
 }
 
 func builtinLen(_ context.Context, _ *Interpreter, args []any) (any, error) {

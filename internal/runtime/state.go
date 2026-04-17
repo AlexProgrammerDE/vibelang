@@ -274,10 +274,10 @@ func (i *Interpreter) registerFunction(function *AIFunction) {
 	i.tools[function.Name()] = function
 }
 
-func (i *Interpreter) toolSpecs(exclude string) []ToolSpec {
+func (i *Interpreter) toolSpecs(exclude string, directives aiDirectiveConfig) []ToolSpec {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
-	return sortedToolSpecs(i.tools, exclude)
+	return sortedToolSpecs(i.tools, exclude, directives)
 }
 
 func (i *Interpreter) lookupTool(name string) (ToolCallable, bool) {

@@ -105,6 +105,36 @@ func TestParseMatchStatement(t *testing.T) {
 	}
 }
 
+func TestParseTryExceptFinally(t *testing.T) {
+	source := `try:
+    fail("boom")
+except err:
+    print(err)
+finally:
+    print("done")
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	tryStmt, ok := program.Statements[0].(*ast.TryStmt)
+	if !ok {
+		t.Fatalf("expected TryStmt, got %T", program.Statements[0])
+	}
+	if tryStmt.ErrorName != "err" {
+		t.Fatalf("expected except binding err, got %q", tryStmt.ErrorName)
+	}
+	if len(tryStmt.Body) != 1 || len(tryStmt.Except) != 1 || len(tryStmt.Finally) != 1 {
+		t.Fatalf("unexpected try body sizes: %#v", tryStmt)
+	}
+}
+
 func TestParseInlinePromptsPreserveRawText(t *testing.T) {
 	source := `path = "notes.txt"
 digits = * find the first 5 digits of pi, then return them as a string.

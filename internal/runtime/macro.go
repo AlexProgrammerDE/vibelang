@@ -17,12 +17,14 @@ type MacroCallable interface {
 }
 
 type AIMacro struct {
-	Def      *ast.MacroDef
-	defaults map[string]any
-	captured map[string]any
+	Def          *ast.MacroDef
+	defaults     map[string]any
+	captured     map[string]any
+	instructions string
+	directives   aiDirectiveConfig
 }
 
-func NewAIMacro(def *ast.MacroDef, defaults map[string]any, captured map[string]any) *AIMacro {
+func NewAIMacro(def *ast.MacroDef, defaults map[string]any, captured map[string]any) (*AIMacro, error) {
 	copiedDefaults := make(map[string]any, len(defaults))
 	for name, value := range defaults {
 		copiedDefaults[name] = cloneValue(value)
@@ -31,11 +33,17 @@ func NewAIMacro(def *ast.MacroDef, defaults map[string]any, captured map[string]
 	for name, value := range captured {
 		copiedCaptured[name] = cloneValue(value)
 	}
-	return &AIMacro{
-		Def:      def,
-		defaults: copiedDefaults,
-		captured: copiedCaptured,
+	directives, instructions, err := parseAIBody(def.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", def.Name, err)
 	}
+	return &AIMacro{
+		Def:          def,
+		defaults:     copiedDefaults,
+		captured:     copiedCaptured,
+		instructions: instructions,
+		directives:   directives,
+	}, nil
 }
 
 func (m *AIMacro) Name() string {
@@ -71,24 +79,31 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 	}
 
 	scope := macro.scope(args)
-	instructions, err := i.renderPromptText(ctx, macro.Def.Body, scope)
+	instructions, err := i.renderPromptText(ctx, macro.instructions, scope)
 	if err != nil {
 		return nil, err
 	}
 
 	history := make([]ToolEvent, 0)
-	tools := i.toolSpecs("")
+	tools := i.toolSpecs("", macro.directives)
 
-	for step := 0; step < i.maxAISteps; step++ {
+	maxSteps := i.maxAISteps
+	if macro.directives.MaxSteps != nil {
+		maxSteps = *macro.directives.MaxSteps
+	}
+
+	for step := 0; step < maxSteps; step++ {
 		prompt, err := buildMacroPrompt(macro, instructions, scope, tools, history)
 		if err != nil {
 			return nil, err
 		}
 
 		response, err := i.model.Generate(ctx, model.Request{
-			System:     macroSystemPrompt(),
-			Prompt:     prompt,
-			JSONSchema: macroActionSchema(),
+			System:      macroSystemPrompt(),
+			Prompt:      prompt,
+			JSONSchema:  macroActionSchema(),
+			Temperature: macro.directives.Temperature,
+			MaxTokens:   macro.directives.MaxTokens,
 		})
 		i.incrementMetric("ai_model_requests_total", 1)
 		if err != nil {
@@ -140,6 +155,21 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			if err != nil {
 				return nil, err
 			}
+			if !macro.directives.allowsTool(action.Call.Name) {
+				rejection := fmt.Sprintf("the helper %s is not enabled for this macro", action.Call.Name)
+				if repeatedRejectedToolCall(history, action.Call.Name, bound) {
+					i.incrementMetric("ai_tool_call_retries_blocked_total", 1)
+					return nil, fmt.Errorf("%s repeatedly requested the rejected helper %s(%s): %s", macro.Name(), action.Call.Name, jsonString(bound), rejection)
+				}
+				i.incrementMetric("ai_tool_call_rejections_total", 1)
+				history = append(history, ToolEvent{
+					Name:      action.Call.Name,
+					Arguments: bound,
+					Error:     rejection,
+					Rejected:  true,
+				})
+				continue
+			}
 			i.incrementMetric("ai_tool_calls_total", 1)
 			i.tracef("%s calling %s with %s", macro.Name(), action.Call.Name, jsonString(bound))
 			result, err := i.invokeTool(ctx, callee, bound, 1, nil)
@@ -157,7 +187,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 		}
 	}
 
-	return nil, fmt.Errorf("%s exceeded the maximum AI tool steps of %d", macro.Name(), i.maxAISteps)
+	return nil, fmt.Errorf("%s exceeded the maximum AI tool steps of %d", macro.Name(), maxSteps)
 }
 
 type macroAction struct {

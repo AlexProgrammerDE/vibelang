@@ -19,6 +19,7 @@ The tradeoff is that function bodies are not statically analyzable in the same w
 - normal expressions and control flow
 - declared parameter and return types
 - a JSON-only model protocol
+- optional per-body AI directives for budgets and helper visibility
 
 Prompt interpolation stays on the deterministic side of the language. `${...}` placeholders are parsed as real vibelang expressions, so a prompt can reference `${items[0]}`, `${items[1:3]}`, `${len(digits)}`, or `${basename(path)}` without forcing the model to reconstruct obvious facts from raw JSON inputs.
 
@@ -39,6 +40,8 @@ The loop looks like this:
 
 This design is less flashy than native provider tool calling, but it is easier to reason about and test locally.
 
+Directives such as `@tools`, `@deny_tools`, `@temperature`, `@max_tokens`, and `@max_steps` make that loop more local and explicit. They let one AI body stay deterministic and tightly scoped without forcing the whole interpreter into the same limits.
+
 ## Why the Interpreter Is Still Useful
 
 Without the interpreter, a prompt program quickly turns into opaque glue code. The interpreter adds structure that the model alone does not provide:
@@ -46,6 +49,7 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 - lexical scoping for names
 - module loading with isolated exports
 - collection literals, member access, structural `match` / `case`, negative indexing, and Python-style slicing
+- deterministic `try` / `except` / `finally` blocks around failure-prone work
 - loops and conditionals
 - builtins for routine data work, including dict updates, list sorting, deduping, and numeric reducers
 - builtin tools for file access, path handling, JSON, strings, environment inspection, HTTP, TCP sockets, local process execution, math, and time

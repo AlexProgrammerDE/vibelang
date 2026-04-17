@@ -23,6 +23,7 @@ def name(param: type, other: type = "default") -> return_type:
 Notes:
 
 - Function bodies are raw text, not statements.
+- Leading lines that start with `@` are treated as AI directives before the remaining body text is sent to the model.
 - `${...}` placeholders are evaluated as normal vibelang expressions before the prompt is sent to the model.
 - Prompt interpolation can use arguments, current values, indexing, slicing, arithmetic, and prompt-safe builtins such as `len`, `json`, `basename`, or `join_path`.
 - AI functions capture surrounding non-function values at definition time by value, so later list and dict mutations do not silently change prompt bodies.
@@ -43,6 +44,7 @@ result = @name(42)
 Notes:
 
 - Macro bodies are also raw text and are executed by the local model.
+- Leading AI directives work in macros too.
 - A macro must expand to exactly one valid vibelang expression source string.
 - The expanded expression is then parsed and evaluated in the caller's environment.
 - Macro prompts can use `${...}` interpolation just like AI functions.
@@ -87,6 +89,27 @@ Notes:
 - `${...}` interpolation also works inside inline prompts.
 - Conditions coerce the returned value to `bool`. Other inline prompts default to `any`.
 
+### AI Directives
+
+Leading directive lines tune one AI body without changing global CLI flags:
+
+```python
+def slugify(title: string) -> string:
+    @temperature 0
+    @max_tokens 128
+    @max_steps 4
+    @tools lower, trim, replace, regex_replace
+    Convert ${title} into a lowercase URL slug.
+```
+
+Supported directives:
+
+- `@temperature <float>`: override sampling temperature for this function or macro
+- `@max_tokens <int>`: override the per-step token budget
+- `@max_steps <int>`: override the helper-call loop limit
+- `@tools name_a, name_b`: allow only the listed helper functions
+- `@deny_tools name_a, name_b`: hide specific helper functions from this body
+
 ### Statements
 
 Supported statements:
@@ -100,8 +123,27 @@ Supported statements:
 - conditional: `if ...:`, `elif ...:`, `else:`
 - pattern matching: `match subject:` with one or more `case pattern:` clauses
 - loop: `while ...:` and `for name in iterable:`
+- error handling: `try:`, `except err:`, `finally:`
 - loop control: `break`, `continue`
 - `pass`
+
+### Try Statement
+
+```python
+try:
+    fail("boom")
+except err:
+    print(err)
+finally:
+    print("cleanup complete")
+```
+
+Notes:
+
+- `except` is optional when `finally` is present.
+- `finally` is optional when `except` is present.
+- `except` may bind the error text into one local name, for example `except err:`.
+- Builtin failures, tool failures, and model/runtime errors raised inside the guarded block all flow through the same mechanism.
 
 ### Match Statement
 
@@ -175,6 +217,7 @@ The runtime coerces model outputs to the declared return type when possible.
 ## Builtins
 
 - `print(...)`: write values to stdout
+- `fail(message)`: raise a runtime error with a message
 - `len(value)`: length of a string, list, or dict
 - `str(value)`: convert to string
 - `int(value)`: convert to integer
@@ -223,6 +266,14 @@ The runtime coerces model outputs to the declared return type when possible.
 - `join(values, separator)`: join a list into a string
 - `replace(text, old, new)`: replace all substring matches
 - `contains(container, value)`: containment check as a builtin helper
+- `base64_encode(text)`: encode text as base64
+- `base64_decode(text)`: decode base64 text
+- `url_encode(text)`: percent-encode URL query text
+- `url_decode(text)`: decode percent-encoded URL query text
+- `sha256(text)`: return the hex SHA-256 digest of a string
+- `regex_match(pattern, text)`: test whether a regex matches
+- `regex_find_all(pattern, text)`: return regex matches as a list
+- `regex_replace(pattern, text, replacement)`: replace regex matches
 - `read_json(path)`: read and decode JSON
 - `write_file(path, content)`: write a UTF-8 text file and return the path
 - `copy_file(source, destination)`: copy a file and return the destination path
@@ -293,6 +344,7 @@ Behavior:
 - `return` ends the function.
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
+- Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
 - Self-recursive helper calls are rejected and fed back into the next model step through tool history.
 - Repeating the same rejected helper call now fails fast instead of burning more model steps.
 - Helper calls are limited by `--max-steps`.

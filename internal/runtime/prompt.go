@@ -307,10 +307,10 @@ func indentLines(text, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
-func sortedToolSpecs(tools map[string]ToolCallable, current string) []ToolSpec {
+func sortedToolSpecs(tools map[string]ToolCallable, current string, directives aiDirectiveConfig) []ToolSpec {
 	names := make([]string, 0, len(tools))
 	for name := range tools {
-		if name == current {
+		if name == current || !directives.allowsTool(name) {
 			continue
 		}
 		names = append(names, name)

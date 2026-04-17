@@ -1,0 +1,10 @@
+encoded = base64_encode("vibelang")
+print(encoded)
+
+try:
+    fail("simulated failure")
+except err:
+    print("caught")
+    print(err)
+finally:
+    print(regex_replace("[0-9]+", "build-2026", "X"))

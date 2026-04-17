@@ -16,9 +16,11 @@ type Config struct {
 }
 
 type Request struct {
-	System     string
-	Prompt     string
-	JSONSchema map[string]any
+	System      string
+	Prompt      string
+	JSONSchema  map[string]any
+	Temperature *float64
+	MaxTokens   *int
 }
 
 type Response struct {

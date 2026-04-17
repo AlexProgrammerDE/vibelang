@@ -1,0 +1,10 @@
+def slugify(title: string) -> string:
+    @temperature 0
+    @max_steps 4
+    @tools lower, trim, replace, regex_replace
+    Convert ${title} into a lowercase URL slug.
+    Replace whitespace runs with "-".
+    Remove punctuation and collapse repeated "-" runs.
+    Return only the slug text.
+
+print(slugify("  Launching Vibelang, Soon!  "))

@@ -78,8 +78,8 @@ func (c *llamaCPPClient) generateChatCompletion(ctx context.Context, request Req
 	payload := llamaChatRequest{
 		Model:          c.config.Model,
 		Messages:       messages,
-		MaxTokens:      c.config.MaxTokens,
-		Temperature:    c.config.Temperature,
+		MaxTokens:      c.maxTokens(request),
+		Temperature:    c.temperature(request),
 		Stream:         false,
 		ResponseFormat: llamaResponseFormat(request.JSONSchema),
 	}
@@ -129,8 +129,8 @@ func (c *llamaCPPClient) generateCompletion(ctx context.Context, request Request
 
 	payload := llamaCompletionRequest{
 		Prompt:      prompt,
-		NPredict:    c.config.MaxTokens,
-		Temperature: c.config.Temperature,
+		NPredict:    c.maxTokens(request),
+		Temperature: c.temperature(request),
 	}
 
 	body, err := json.Marshal(payload)
@@ -178,4 +178,18 @@ func llamaResponseFormat(schema map[string]any) map[string]any {
 		"type":   "json_object",
 		"schema": schema,
 	}
+}
+
+func (c *llamaCPPClient) temperature(request Request) float64 {
+	if request.Temperature != nil {
+		return *request.Temperature
+	}
+	return c.config.Temperature
+}
+
+func (c *llamaCPPClient) maxTokens(request Request) int {
+	if request.MaxTokens != nil {
+		return *request.MaxTokens
+	}
+	return c.config.MaxTokens
 }
