@@ -103,6 +103,16 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic runtime metrics example
+        run: |
+          output="$(go run ./cmd/vibelang examples/runtime_metrics.vibe)"
+          expected=$'true\nfallback\ntrue\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected runtime_metrics.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Run deterministic cookie example
         run: |
           output="$(go run ./cmd/vibelang examples/cookies.vibe)"

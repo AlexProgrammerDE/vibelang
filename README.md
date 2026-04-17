@@ -18,10 +18,11 @@
 - Supports structured AI return types such as `dict{city: string, alerts: optional[list[string]]}` and `tuple[string, int]`, and turns them into tighter JSON schemas for model backends.
 - Constrains helper calls with per-helper JSON schemas, so models see the exact argument names, required fields, and types for each callable tool.
 - Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
+- Supports Python-style `assert` statements for deterministic guards and self-checking programs.
 - Supports block-scoped `defer` expressions for LIFO cleanup on normal exit, `break`, `continue`, and errors.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
-- Lets AI functions call other AI functions through a strict JSON tool-call loop, and now also understands provider-native `tool_calls` responses from Ollama and OpenAI-compatible backends.
+- Lets AI functions call other AI functions through a strict JSON tool-call loop, and now also understands provider-native `tool_calls` responses from Ollama, `llama.cpp`, and OpenAI-compatible backends, including multi-call batches.
 - Rejects direct and indirect recursive AI helper re-entry before it spirals into repeated depth exhaustion, feeds the rejection back into the next model step, and fails fast if the model keeps retrying a rejected helper.
 - Adds opt-in AI result caching, first-class sets, richer dict and list helpers, numeric reducers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
@@ -34,7 +35,7 @@
 - Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 - Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
-- Ships standard-library modules written in vibelang itself, including `std/web`, `std/telemetry`, and `std/ai`.
+- Ships standard-library modules written in vibelang itself, including `std/web`, `std/telemetry`, `std/runtime`, and `std/ai`.
 
 ## Quick Start
 
@@ -177,6 +178,13 @@ print(second)
 for index, label in zip([1, 2, 3], ["a", "b", "c"]):
     print(index)
     print(label)
+```
+
+Assertions make deterministic invariants explicit:
+
+```python
+snapshot = runtime_metrics()
+assert snapshot["go.goroutine.count"] >= 1, "expected at least one goroutine"
 ```
 
 Pattern matching lets deterministic code branch on data shape before handing the rest to AI:
@@ -430,12 +438,14 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
 - Services: `route_match`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`
 - Runtime introspection: `tool_catalog`, `tool_describe`
-- Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
+- Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`, `runtime_metrics`, `runtime_metric`
 
 Bundled `std` modules currently include:
 
 - `std/web`: AI helpers for HTML page rendering, component fragments, app shells, typed HTML responses, JSON response construction, and SSE wrappers via `respond_app_shell`, `respond_json`, `respond_sse`, and `respond_sse_channel`
 - `std/telemetry`: AI helpers for summarizing runtime metrics
+- `std/runtime`: AI helpers for summarizing live Go runtime metrics
+- `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
 
 ## Documentation
 

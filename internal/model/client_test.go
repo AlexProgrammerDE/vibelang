@@ -294,17 +294,63 @@ func TestOllamaClientReturnsNativeToolCalls(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	if response.ToolCall == nil {
-		t.Fatalf("expected native tool call response, got %#v", response)
+	if len(response.ToolCalls) != 1 {
+		t.Fatalf("expected 1 native tool call response, got %#v", response)
 	}
-	if response.ToolCall.Name != "lookup_weather" {
-		t.Fatalf("unexpected tool name: %#v", response.ToolCall)
+	if response.ToolCalls[0].Name != "lookup_weather" {
+		t.Fatalf("unexpected tool name: %#v", response.ToolCalls)
 	}
-	if response.ToolCall.Arguments["city"] != "Berlin" {
-		t.Fatalf("unexpected tool arguments: %#v", response.ToolCall.Arguments)
+	if response.ToolCalls[0].Arguments["city"] != "Berlin" {
+		t.Fatalf("unexpected tool arguments: %#v", response.ToolCalls[0].Arguments)
 	}
 	if _, ok := payload["tools"].([]any); !ok {
 		t.Fatalf("expected tools in ollama payload, got %#v", payload["tools"])
+	}
+}
+
+func TestOllamaClientReturnsAllNativeToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":{"content":"","tool_calls":[{"function":{"name":"lookup_weather","arguments":{"city":"Berlin"}}},{"function":{"name":"lookup_timezone","arguments":{"city":"Berlin"}}}]}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Provider: "ollama",
+		Endpoint: server.URL,
+		Model:    "gemma4",
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	response, err := client.Generate(context.Background(), Request{
+		Prompt: "user prompt",
+		Tools: []ToolDefinition{
+			{
+				Name:        "lookup_weather",
+				Description: "Look up weather for a city.",
+				Parameters:  map[string]any{"type": "object"},
+			},
+			{
+				Name:        "lookup_timezone",
+				Description: "Look up timezone for a city.",
+				Parameters:  map[string]any{"type": "object"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if len(response.ToolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %#v", response.ToolCalls)
+	}
+	if response.ToolCalls[0].Name != "lookup_weather" || response.ToolCalls[1].Name != "lookup_timezone" {
+		t.Fatalf("unexpected tool calls: %#v", response.ToolCalls)
 	}
 }
 
@@ -353,14 +399,14 @@ func TestLlamaCPPClientReturnsNativeToolCalls(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	if response.ToolCall == nil {
-		t.Fatalf("expected native tool call response, got %#v", response)
+	if len(response.ToolCalls) != 1 {
+		t.Fatalf("expected 1 native tool call response, got %#v", response)
 	}
-	if response.ToolCall.Name != "lookup_weather" {
-		t.Fatalf("unexpected tool name: %#v", response.ToolCall)
+	if response.ToolCalls[0].Name != "lookup_weather" {
+		t.Fatalf("unexpected tool name: %#v", response.ToolCalls)
 	}
-	if response.ToolCall.Arguments["city"] != "Berlin" {
-		t.Fatalf("unexpected tool arguments: %#v", response.ToolCall.Arguments)
+	if response.ToolCalls[0].Arguments["city"] != "Berlin" {
+		t.Fatalf("unexpected tool arguments: %#v", response.ToolCalls[0].Arguments)
 	}
 	if _, ok := payload["tools"].([]any); !ok {
 		t.Fatalf("expected tools in llama.cpp payload, got %#v", payload["tools"])
@@ -413,14 +459,14 @@ func TestOpenAICompatibleClientReturnsNativeToolCalls(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	if response.ToolCall == nil {
-		t.Fatalf("expected native tool call response, got %#v", response)
+	if len(response.ToolCalls) != 1 {
+		t.Fatalf("expected 1 native tool call response, got %#v", response)
 	}
-	if response.ToolCall.Name != "lookup_weather" {
-		t.Fatalf("unexpected tool name: %#v", response.ToolCall)
+	if response.ToolCalls[0].Name != "lookup_weather" {
+		t.Fatalf("unexpected tool name: %#v", response.ToolCalls)
 	}
-	if response.ToolCall.Arguments["city"] != "Berlin" {
-		t.Fatalf("unexpected tool arguments: %#v", response.ToolCall.Arguments)
+	if response.ToolCalls[0].Arguments["city"] != "Berlin" {
+		t.Fatalf("unexpected tool arguments: %#v", response.ToolCalls[0].Arguments)
 	}
 	if _, ok := payload["tools"].([]any); !ok {
 		t.Fatalf("expected tools in openai-compatible payload, got %#v", payload["tools"])

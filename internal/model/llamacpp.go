@@ -123,12 +123,12 @@ func (c *llamaCPPClient) generateChatCompletion(ctx context.Context, request Req
 		return Response{}, fmt.Errorf("llama.cpp chat returned empty content")
 	}
 
-	toolCall, err := firstToolCall(response.Choices[0].Message.ToolCalls)
+	toolCalls, err := parseToolCalls(response.Choices[0].Message.ToolCalls)
 	if err != nil {
 		return Response{}, err
 	}
-	if toolCall != nil {
-		return Response{ToolCall: toolCall}, nil
+	if len(toolCalls) > 0 {
+		return Response{ToolCalls: toolCalls}, nil
 	}
 
 	text, err := openAIMessageText(response.Choices[0].Message.Content)

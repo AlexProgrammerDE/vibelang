@@ -26,8 +26,8 @@ type Request struct {
 }
 
 type Response struct {
-	Text     string
-	ToolCall *ToolCall
+	Text      string
+	ToolCalls []ToolCall
 }
 
 type ToolDefinition struct {

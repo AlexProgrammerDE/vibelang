@@ -109,6 +109,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return p.parseTry(indent)
 	case lexer.TokenDefer:
 		return p.parseDefer()
+	case lexer.TokenAssert:
+		return p.parseAssert()
 	case lexer.TokenFor:
 		return p.parseFor(indent)
 	case lexer.TokenBreak:
@@ -278,6 +280,44 @@ func (p *Parser) parseDefer() (ast.Stmt, error) {
 	return &ast.DeferStmt{
 		Line: line.Number,
 		Expr: expr,
+	}, nil
+}
+
+func (p *Parser) parseAssert() (ast.Stmt, error) {
+	line := p.lines[p.index]
+	if len(line.Tokens) < 2 {
+		return nil, fmt.Errorf("line %d: assert requires a condition", line.Number)
+	}
+
+	p.index++
+	messageIndex := findTopLevelToken(line.Tokens[1:], lexer.TokenComma)
+
+	conditionTokens := line.Tokens[1:]
+	var message ast.Expr
+	if messageIndex >= 0 {
+		conditionTokens = line.Tokens[1 : 1+messageIndex]
+		messageTokens := line.Tokens[1+messageIndex+1:]
+		if len(messageTokens) == 0 {
+			return nil, fmt.Errorf("line %d: assert message is required after ','", line.Number)
+		}
+		expr, err := parseExpressionTokens(messageTokens)
+		if err != nil {
+			return nil, err
+		}
+		message = expr
+	}
+	if len(conditionTokens) == 0 {
+		return nil, fmt.Errorf("line %d: assert requires a condition", line.Number)
+	}
+
+	condition, err := parseExpressionTokens(conditionTokens)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.AssertStmt{
+		Line:      line.Number,
+		Condition: condition,
+		Message:   message,
 	}, nil
 }
 

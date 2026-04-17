@@ -129,17 +129,22 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			i.incrementMetric("ai_model_request_errors_total", 1)
 			return nil, fmt.Errorf("%s model request failed: %w", macro.Name(), err)
 		}
-		var action macroAction
-		if response.ToolCall != nil {
-			i.tracef("%s native macro tool call: %s with %s", macro.Name(), response.ToolCall.Name, jsonString(response.ToolCall.Arguments))
-			action = macroAction{
-				Action: "call",
-				Call: &toolInvocation{
-					Name:      response.ToolCall.Name,
-					Arguments: response.ToolCall.Arguments,
-				},
+		if len(response.ToolCalls) > 0 {
+			for _, toolCall := range response.ToolCalls {
+				i.tracef("%s native macro tool call: %s with %s", macro.Name(), toolCall.Name, jsonString(toolCall.Arguments))
+				history, err = i.executeMacroToolInvocation(ctx, macro, toolInvocation{
+					Name:      toolCall.Name,
+					Arguments: toolCall.Arguments,
+				}, history)
+				if err != nil {
+					return nil, err
+				}
 			}
-		} else {
+			continue
+		}
+
+		var action macroAction
+		{
 			i.tracef("%s raw macro response: %s", macro.Name(), response.Text)
 
 			action, err = decodeAIMacroAction(response.Text)
@@ -169,51 +174,10 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			if action.Call == nil {
 				return nil, fmt.Errorf("%s requested a helper call without call details", macro.Name())
 			}
-			callee, ok := i.lookupTool(action.Call.Name)
-			if !ok {
-				return nil, fmt.Errorf("%s requested unknown helper %q", macro.Name(), action.Call.Name)
-			}
-			spec := callee.ToolSpec()
-			callArgs := namedCallArguments(action.Call.Arguments)
-			var bound map[string]any
-			switch named := callee.(type) {
-			case *AIFunction:
-				bound, err = named.bindArguments(callArgs)
-			case *builtinFunction:
-				bound, err = bindCallArguments(action.Call.Name, spec.Params, callArgs, named.defaults)
-			default:
-				bound, err = bindCallArguments(action.Call.Name, spec.Params, callArgs, nil)
-			}
+			history, err = i.executeMacroToolInvocation(ctx, macro, *action.Call, history)
 			if err != nil {
 				return nil, err
 			}
-			if !macro.directives.allowsTool(action.Call.Name) {
-				rejection := fmt.Sprintf("the helper %s is not enabled for this macro", action.Call.Name)
-				if repeatedRejectedToolCall(history, action.Call.Name, bound) {
-					i.incrementMetric("ai_tool_call_retries_blocked_total", 1)
-					return nil, fmt.Errorf("%s repeatedly requested the rejected helper %s(%s): %s", macro.Name(), action.Call.Name, jsonString(bound), rejection)
-				}
-				i.incrementMetric("ai_tool_call_rejections_total", 1)
-				history = append(history, ToolEvent{
-					Name:      action.Call.Name,
-					Arguments: bound,
-					Error:     rejection,
-					Rejected:  true,
-				})
-				continue
-			}
-			i.incrementMetric("ai_tool_calls_total", 1)
-			i.tracef("%s calling %s with %s", macro.Name(), action.Call.Name, jsonString(bound))
-			result, err := i.invokeTool(ctx, callee, bound, 1, nil)
-			if err != nil {
-				i.incrementMetric("ai_tool_call_errors_total", 1)
-				return nil, err
-			}
-			history = append(history, ToolEvent{
-				Name:      action.Call.Name,
-				Arguments: bound,
-				Result:    result,
-			})
 		default:
 			return nil, fmt.Errorf("%s returned unsupported action %q", macro.Name(), action.Action)
 		}
@@ -226,6 +190,61 @@ type macroAction struct {
 	Action string
 	Source string
 	Call   *toolInvocation
+}
+
+func (i *Interpreter) executeMacroToolInvocation(ctx context.Context, macro *AIMacro, call toolInvocation, history []ToolEvent) ([]ToolEvent, error) {
+	callee, ok := i.lookupTool(call.Name)
+	if !ok {
+		return nil, fmt.Errorf("%s requested unknown helper %q", macro.Name(), call.Name)
+	}
+	spec := callee.ToolSpec()
+	callArgs := namedCallArguments(call.Arguments)
+
+	var (
+		bound map[string]any
+		err   error
+	)
+	switch named := callee.(type) {
+	case *AIFunction:
+		bound, err = named.bindArguments(callArgs)
+	case *builtinFunction:
+		bound, err = bindCallArguments(call.Name, spec.Params, callArgs, named.defaults)
+	default:
+		bound, err = bindCallArguments(call.Name, spec.Params, callArgs, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if !macro.directives.allowsTool(call.Name) {
+		rejection := fmt.Sprintf("the helper %s is not enabled for this macro", call.Name)
+		if repeatedRejectedToolCall(history, call.Name, bound) {
+			i.incrementMetric("ai_tool_call_retries_blocked_total", 1)
+			return nil, fmt.Errorf("%s repeatedly requested the rejected helper %s(%s): %s", macro.Name(), call.Name, jsonString(bound), rejection)
+		}
+		i.incrementMetric("ai_tool_call_rejections_total", 1)
+		history = append(history, ToolEvent{
+			Name:      call.Name,
+			Arguments: bound,
+			Error:     rejection,
+			Rejected:  true,
+		})
+		return history, nil
+	}
+
+	i.incrementMetric("ai_tool_calls_total", 1)
+	i.tracef("%s calling %s with %s", macro.Name(), call.Name, jsonString(bound))
+	result, err := i.invokeTool(ctx, callee, bound, 1, nil)
+	if err != nil {
+		i.incrementMetric("ai_tool_call_errors_total", 1)
+		return nil, err
+	}
+	history = append(history, ToolEvent{
+		Name:      call.Name,
+		Arguments: bound,
+		Result:    result,
+	})
+	return history, nil
 }
 
 func decodeAIMacroAction(text string) (macroAction, error) {

@@ -10,6 +10,25 @@ import (
 )
 
 func registerObservabilityBuiltins(interpreter *Interpreter) {
+	registerBuiltin(interpreter, promptToolBuiltin("runtime_metrics", builtinRuntimeMetrics, "dict[string, int]", "Return a snapshot of Go runtime metrics using stable names such as go.goroutine.count and go.memory.used."))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "runtime_metric",
+		call: builtinRuntimeMetric,
+		tool: &ToolSpec{
+			Name:       "runtime_metric",
+			ReturnType: ast.TypeRef{Expr: "any"},
+			Body:       "Return one named Go runtime metric, or the provided default when it is unavailable.",
+			Params: []ast.Param{
+				{Name: "name", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "default", DefaultText: "none"},
+			},
+		},
+		defaults: map[string]any{
+			"default": nil,
+		},
+		bindArgs:   true,
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, &builtinFunction{
 		name: "log",
 		call: builtinLog,

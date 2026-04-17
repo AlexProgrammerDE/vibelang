@@ -1,0 +1,9 @@
+snapshot = runtime_metrics()
+assert snapshot["go.goroutine.count"] >= 1, "expected at least one goroutine"
+
+count = runtime_metric("go.goroutine.count", 0)
+missing = runtime_metric("go.metric.does_not_exist", "fallback")
+
+print(count >= 1)
+print(missing)
+print(contains(keys(snapshot), "go.goroutine.count"))

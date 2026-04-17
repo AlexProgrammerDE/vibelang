@@ -127,12 +127,12 @@ func (c *ollamaClient) generateChat(ctx context.Context, request Request) (Respo
 		return Response{}, fmt.Errorf("ollama error: %s", response.Error)
 	}
 
-	toolCall, err := firstToolCall(response.Message.ToolCalls)
+	toolCalls, err := parseToolCalls(response.Message.ToolCalls)
 	if err != nil {
 		return Response{}, err
 	}
-	if toolCall != nil {
-		return Response{ToolCall: toolCall}, nil
+	if len(toolCalls) > 0 {
+		return Response{ToolCalls: toolCalls}, nil
 	}
 	if strings.TrimSpace(response.Message.Content) == "" {
 		return Response{}, fmt.Errorf("ollama chat returned empty content")

@@ -1,0 +1,11 @@
+def summarize_runtime(snapshot: dict, tone: string = "crisp") -> string:
+    @temperature 0
+    @tools json_pretty
+    Summarize the Go runtime metrics snapshot ${json_pretty(snapshot)} in one ${tone} paragraph.
+    Mention goroutine count and memory usage first.
+
+def summarize_runtime_now(tone: string = "crisp") -> string:
+    @temperature 0
+    @tools runtime_metrics, json_pretty
+    Call runtime_metrics.
+    Summarize the current Go runtime snapshot in one ${tone} paragraph.

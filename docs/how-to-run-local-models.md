@@ -4,7 +4,7 @@ This guide is for developers who already understand what `vibelang` is and want 
 
 ## Run With Ollama
 
-Ollama serves its local API at `http://localhost:11434/api` by default. `vibelang` uses the non-streaming `POST /api/chat` endpoint with structured JSON output, falls back to `POST /api/generate` when needed, sends tighter per-helper JSON schemas so models see exact helper argument contracts instead of one loose `arguments` object, and now also passes native provider `tools` definitions so Ollama can answer with `tool_calls` directly.
+Ollama serves its local API at `http://localhost:11434/api` by default. `vibelang` uses the non-streaming `POST /api/chat` endpoint with structured JSON output, falls back to `POST /api/generate` when needed, sends tighter per-helper JSON schemas so models see exact helper argument contracts instead of one loose `arguments` object, and now also passes native provider `tools` definitions so Ollama can answer with `tool_calls` directly, including multi-call batches.
 
 Start Ollama:
 
@@ -35,11 +35,11 @@ Useful flags:
 - `--check`: parse the program and exit before contacting the model.
 - `--trace`: inspect raw model responses and helper calls.
 
-`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/comprehensions.vibe` covers Python-style list and dict comprehensions. `examples/macros.vibe` covers AI macro expansion. `examples/observability.vibe` covers sets, JSON text helpers, structured logs, and OpenTelemetry tracing. `examples/defer.vibe` covers block-scoped cleanup. `examples/url_tools.vibe` covers deterministic URL parsing and query encoding. `examples/yaml.vibe` covers YAML parsing and file IO. `examples/cookies.vibe` covers HTTP cookie helpers. `examples/routes.vibe` covers deterministic route matching for AI-backed servers. `examples/stdlib.vibe`, `examples/ops.vibe`, and `examples/select.vibe` cover the broader deterministic standard library and channel coordination helpers.
+`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/comprehensions.vibe` covers Python-style list and dict comprehensions. `examples/macros.vibe` covers AI macro expansion. `examples/observability.vibe` covers sets, JSON text helpers, structured logs, and OpenTelemetry tracing. `examples/defer.vibe` covers block-scoped cleanup. `examples/runtime_metrics.vibe` covers deterministic assertions and live Go runtime metrics. `examples/url_tools.vibe` covers deterministic URL parsing and query encoding. `examples/yaml.vibe` covers YAML parsing and file IO. `examples/cookies.vibe` covers HTTP cookie helpers. `examples/routes.vibe` covers deterministic route matching for AI-backed servers. `examples/stdlib.vibe`, `examples/ops.vibe`, and `examples/select.vibe` cover the broader deterministic standard library and channel coordination helpers.
 
 ## Run With llama.cpp
 
-`vibelang` expects a running `llama-server`. It uses the OpenAI-compatible `/v1/chat/completions` route with `response_format` first, now sends provider-native `tools` definitions there as well, and falls back to the native `/completion` endpoint when needed.
+`vibelang` expects a running `llama-server`. It uses the OpenAI-compatible `/v1/chat/completions` route with `response_format` first, now sends provider-native `tools` definitions there as well, executes native `tool_calls` arrays when the server emits them, and falls back to the native `/completion` endpoint when needed.
 
 Start the server:
 

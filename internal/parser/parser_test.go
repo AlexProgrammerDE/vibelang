@@ -209,6 +209,28 @@ func TestParseDeferStatement(t *testing.T) {
 	}
 }
 
+func TestParseAssertStatement(t *testing.T) {
+	source := `assert len([1, 2, 3]) == 3, "length mismatch"
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	assertStmt, ok := program.Statements[0].(*ast.AssertStmt)
+	if !ok {
+		t.Fatalf("expected AssertStmt, got %T", program.Statements[0])
+	}
+	if assertStmt.Message == nil {
+		t.Fatalf("expected assert message to be parsed")
+	}
+}
+
 func TestParseInlinePromptsPreserveRawText(t *testing.T) {
 	source := `path = "notes.txt"
 digits = * find the first 5 digits of pi, then return them as a string.

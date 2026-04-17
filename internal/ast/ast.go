@@ -102,6 +102,15 @@ type DeferStmt struct {
 func (*DeferStmt) stmtNode()         {}
 func (s *DeferStmt) LineNumber() int { return s.Line }
 
+type AssertStmt struct {
+	Line      int
+	Condition Expr
+	Message   Expr
+}
+
+func (*AssertStmt) stmtNode()         {}
+func (s *AssertStmt) LineNumber() int { return s.Line }
+
 type IfStmt struct {
 	Line      int
 	Condition Expr

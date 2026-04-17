@@ -168,6 +168,14 @@ match packet:
         print(city)
 ```
 
+Assertions help deterministic glue code fail loudly before bad state spreads:
+
+```python
+snapshot = runtime_metrics()
+assert snapshot["go.goroutine.count"] >= 1, "expected at least one goroutine"
+print(runtime_metric("go.goroutine.count", 0))
+```
+
 For deterministic HTML assembly, the runtime also exposes small text helpers:
 
 ```python
@@ -201,6 +209,7 @@ Bundled `std` modules can be imported directly:
 ```python
 import "std/web" as web
 import "std/ai" as ai
+import "std/runtime" as runtime
 
 def handle(request: dict) -> dict:
     Call web.render_app_shell with the title "demo", the route ${request["path"]}, and initial state {"path": request["path"]}.
@@ -208,6 +217,7 @@ def handle(request: dict) -> dict:
 
 summary = ai.summarize_payload({"route": "/demo", "status": 200})
 print(summary)
+print(runtime.summarize_runtime(runtime_metrics()))
 ```
 
 Static web assets can stay fully deterministic, which is useful when an AI handler renders HTML once and then serves bundled JS, CSS, or Wasm files directly:
@@ -381,3 +391,4 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/structured_outputs.vibe](../examples/structured_outputs.vibe) to see typed AI return values, optional fields, nested records, and tuples.
 - Run [examples/directives.vibe](../examples/directives.vibe) to see per-function AI directives.
 - Run [examples/error_handling.vibe](../examples/error_handling.vibe) to see `try` / `except` / `finally` and text helpers.
+- Run [examples/runtime_metrics.vibe](../examples/runtime_metrics.vibe) to see `assert`, `runtime_metrics`, and `runtime_metric`.

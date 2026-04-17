@@ -47,26 +47,29 @@ func requestTools(request Request) []providerToolDefinition {
 	return tools
 }
 
-func firstToolCall(toolCalls []providerToolCall) (*ToolCall, error) {
+func parseToolCalls(toolCalls []providerToolCall) ([]ToolCall, error) {
 	if len(toolCalls) == 0 {
 		return nil, nil
 	}
 
-	call := toolCalls[0]
-	name := strings.TrimSpace(call.Function.Name)
-	if name == "" {
-		return nil, fmt.Errorf("tool call was missing a function name")
-	}
+	result := make([]ToolCall, 0, len(toolCalls))
+	for _, call := range toolCalls {
+		name := strings.TrimSpace(call.Function.Name)
+		if name == "" {
+			return nil, fmt.Errorf("tool call was missing a function name")
+		}
 
-	arguments, err := parseToolArguments(call.Function.Arguments)
-	if err != nil {
-		return nil, fmt.Errorf("tool call %s arguments: %w", name, err)
-	}
+		arguments, err := parseToolArguments(call.Function.Arguments)
+		if err != nil {
+			return nil, fmt.Errorf("tool call %s arguments: %w", name, err)
+		}
 
-	return &ToolCall{
-		Name:      name,
-		Arguments: arguments,
-	}, nil
+		result = append(result, ToolCall{
+			Name:      name,
+			Arguments: arguments,
+		})
+	}
+	return result, nil
 }
 
 func parseToolArguments(value any) (map[string]any, error) {

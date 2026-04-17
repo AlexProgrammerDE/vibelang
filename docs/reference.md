@@ -129,6 +129,7 @@ Supported statements:
 - index assignment: `items[0] = "updated"`
 - member assignment: `config.name = "updated"`
 - deferred cleanup: `defer expression`
+- assertions: `assert condition`, `assert condition, "message"`
 - expression statement: `print(value)`
 - conditional: `if ...:`, `elif ...:`, `else:`
 - pattern matching: `match subject:` with one or more `case pattern:` clauses
@@ -170,6 +171,18 @@ Notes:
 - They run on normal completion, `break`, `continue`, and errors.
 - Deferred expressions capture the current visible non-function values at registration time, so later mutations do not silently change cleanup targets.
 - A deferred expression error is reported after all remaining deferred expressions have run.
+
+### Assert Statement
+
+```python
+assert len(items) > 0, "items should not be empty"
+```
+
+Notes:
+
+- `assert` evaluates its condition using normal truthiness rules.
+- When the condition is false and a message is present, the message expression is evaluated and included in the runtime error.
+- `assert` is useful for deterministic invariants around AI outputs, tool results, and runtime checks.
 
 ### Match Statement
 
@@ -386,6 +399,8 @@ Notes:
 - `otel_span_end(span, attributes={})`: finish a span
 - `otel_flush()`: flush pending telemetry exports
 - `metrics_snapshot()`: return interpreter counters such as AI requests, tool calls, tasks, and HTTP traffic
+- `runtime_metrics()`: return a snapshot of Go runtime metrics such as `go.goroutine.count`, `go.memory.used`, and `go.memory.gc.goal`
+- `runtime_metric(name, default=none)`: return one Go runtime metric by name, or the provided default when unavailable
 - `cache_stats()`: return cache entry count together with cache-related metrics
 - `cache_clear()`: clear cached AI results and return the number of removed entries
 - `pi`, `e`: math constants exposed as top-level values
@@ -403,6 +418,7 @@ Bundled modules:
 
 - `std/web`: AI helpers for HTML rendering, component fragments, app shells, typed HTML or JSON response construction, and SSE wrappers
 - `std/telemetry`: AI helpers for summarizing runtime metrics
+- `std/runtime`: AI helpers for summarizing live Go runtime snapshots
 - `std/ai`: reusable AI helpers for rewriting, payload summaries, and release note drafting
 
 ## AI Function Protocol
@@ -424,6 +440,7 @@ Behavior:
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Helper call schemas are specialized per tool, so models see exact helper names plus the allowed and required argument fields for each callable.
 - When a backend supports native tools, `vibelang` also sends the helper catalog through the provider `tools` field and accepts native `tool_calls` responses in addition to the JSON action envelope.
+- Native `tool_calls` arrays are executed in order and each result is folded into the same tool history that the next model step sees.
 - Per-body directives can lower temperature, shrink token budgets, lower step limits, or restrict which helpers the model can see.
 - Per-body directives can also route a specific function or macro through a different backend endpoint, model, API-key env, or timeout without changing the global CLI flags.
 - `@cache true` memoizes successful AI function and macro results for identical inputs and directives.

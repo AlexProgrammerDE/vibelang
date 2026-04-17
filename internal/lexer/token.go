@@ -23,6 +23,7 @@ const (
 	TokenExcept   TokenKind = "except"
 	TokenFinally  TokenKind = "finally"
 	TokenDefer    TokenKind = "defer"
+	TokenAssert   TokenKind = "assert"
 	TokenFor      TokenKind = "for"
 	TokenIn       TokenKind = "in"
 	TokenAnd      TokenKind = "and"
@@ -76,6 +77,7 @@ var keywords = map[string]TokenKind{
 	"except":   TokenExcept,
 	"finally":  TokenFinally,
 	"defer":    TokenDefer,
+	"assert":   TokenAssert,
 	"for":      TokenFor,
 	"in":       TokenIn,
 	"and":      TokenAnd,

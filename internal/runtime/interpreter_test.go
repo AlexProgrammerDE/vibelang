@@ -21,6 +21,7 @@ import (
 
 type scriptedClient struct {
 	responses []string
+	queued    []model.Response
 	prompts   []string
 	requests  []model.Request
 	index     int
@@ -29,6 +30,11 @@ type scriptedClient struct {
 func (c *scriptedClient) Generate(_ context.Context, request model.Request) (model.Response, error) {
 	c.prompts = append(c.prompts, request.Prompt)
 	c.requests = append(c.requests, request)
+	if c.index < len(c.queued) {
+		response := c.queued[c.index]
+		c.index++
+		return response, nil
+	}
 	if c.index >= len(c.responses) {
 		return model.Response{}, errors.New("unexpected model call")
 	}
@@ -761,6 +767,48 @@ print(summarize_weather("Berlin"))
 	}
 }
 
+func TestInterpreterFailsFastWhenNativeToolCallsRepeatRejectedSelfCall(t *testing.T) {
+	source := `def summarize_weather(city: string, tone: string = "crisp") -> string:
+    Write one ${tone} sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		queued: []model.Response{
+			{
+				ToolCalls: []model.ToolCall{
+					{Name: "summarize_weather", Arguments: map[string]any{"city": "Berlin", "tone": "crisp"}},
+				},
+			},
+			{
+				ToolCalls: []model.ToolCall{
+					{Name: "summarize_weather", Arguments: map[string]any{"city": "Berlin", "tone": "crisp"}},
+				},
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:      client,
+		Stdout:     &stdout,
+		MaxAISteps: 6,
+	})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if !strings.Contains(err.Error(), "repeatedly requested the rejected helper") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestInterpreterRejectsIndirectRecursiveAIReentryEvenWithDifferentArguments(t *testing.T) {
 	source := `def summarize_weather(city: string, tone: string = "crisp") -> string:
     Write one ${tone} sentence about the weather in ${city}.
@@ -1288,6 +1336,117 @@ print(snapshot["tasks_spawned_total"] >= 1)
 
 	if stdout.String() != "ready\n42\ntrue\n" {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "ready\n42\ntrue\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsAssertStatements(t *testing.T) {
+	source := `assert len([1, 2, 3]) == 3
+print("ok")
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "ok\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "ok\n", stdout.String())
+	}
+}
+
+func TestInterpreterAssertStatementIncludesMessage(t *testing.T) {
+	source := `assert false, "expected the condition to hold"
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	interpreter := NewInterpreter(Config{})
+	err = interpreter.Execute(context.Background(), program)
+	if err == nil {
+		t.Fatalf("Execute returned nil error")
+	}
+	if !strings.Contains(err.Error(), "expected the condition to hold") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterpreterExposesRuntimeMetrics(t *testing.T) {
+	source := `snapshot = runtime_metrics()
+print(snapshot["go.goroutine.count"] >= 1)
+print(runtime_metric("go.goroutine.count", 0) >= 1)
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "true\ntrue\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "true\ntrue\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsNativeMultipleToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string) -> string:
+    Write one sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		queued: []model.Response{
+			{
+				ToolCalls: []model.ToolCall{
+					{Name: "upper", Arguments: map[string]any{"text": "berlin"}},
+					{Name: "replace", Arguments: map[string]any{"text": "stormy", "old": "stormy", "new": "clear"}},
+				},
+			},
+			{
+				Text: `{"action":"return","value":"BERLIN stays clear today."}`,
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "BERLIN stays clear today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "BERLIN stays clear today.\n", stdout.String())
+	}
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "upper({\"text\":\"berlin\"}) => \"BERLIN\"") {
+		t.Fatalf("follow-up prompt did not include first tool result:\n%s", client.prompts[1])
+	}
+	if !strings.Contains(client.prompts[1], "replace({\"new\":\"clear\",\"old\":\"stormy\",\"text\":\"stormy\"}) => \"clear\"") {
+		t.Fatalf("follow-up prompt did not include second tool result:\n%s", client.prompts[1])
 	}
 }
 
