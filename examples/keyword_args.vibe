@@ -1,0 +1,6 @@
+def write_status(name: string, tone: string = "calm", audience: string = "the team") -> string:
+    Write one ${tone} sentence for ${audience} about ${name}.
+
+print(write_status("Ada"))
+print(write_status(name="Ada", tone="celebratory"))
+print(write_status(name="Ada", audience="leadership", tone="brief"))

@@ -17,6 +17,46 @@ type ToolEvent struct {
 	Result    any
 }
 
+func aiSystemPrompt() string {
+	return strings.Join([]string{
+		"You are the execution engine for vibelang.",
+		"vibelang functions are defined as natural-language instructions.",
+		"Always reply with a single JSON object that matches the provided execution schema.",
+		"Use action=call only when exactly one helper function should run next.",
+		"Prefer helper calls for deterministic filesystem, path, JSON, string, and environment work.",
+		"Never use markdown, code fences, or extra commentary.",
+	}, "\n")
+}
+
+func aiActionSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type": "string",
+				"enum": []string{"return", "call"},
+			},
+			"value": map[string]any{},
+			"call": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type": "string",
+					},
+					"arguments": map[string]any{
+						"type":                 "object",
+						"additionalProperties": true,
+					},
+				},
+				"required":             []string{"name", "arguments"},
+				"additionalProperties": false,
+			},
+		},
+		"required":             []string{"action"},
+		"additionalProperties": true,
+	}
+}
+
 func buildPrompt(function *AIFunction, instructions string, args map[string]any, tools []ToolSpec, history []ToolEvent) (string, error) {
 	inputJSON, err := json.MarshalIndent(args, "", "  ")
 	if err != nil {
@@ -24,8 +64,7 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 	}
 
 	var builder strings.Builder
-	builder.WriteString("You are the execution engine for vibelang.\n")
-	builder.WriteString("vibelang functions are defined as natural-language instructions and must respond with JSON only.\n\n")
+	builder.WriteString("Execute the following vibelang task.\n\n")
 
 	builder.WriteString("Current function:\n")
 	builder.WriteString(fmt.Sprintf("%s(%s) -> %s\n\n", function.Name(), formatParams(function.Def.Params), function.Def.ReturnType.String()))
@@ -58,16 +97,12 @@ func buildPrompt(function *AIFunction, instructions string, args map[string]any,
 		builder.WriteString("\n")
 	}
 
-	builder.WriteString("Return exactly one JSON object using one of these shapes:\n")
-	builder.WriteString(`{"action":"return","value":<json>}` + "\n")
-	builder.WriteString(`{"action":"call","call":{"name":"helper_name","arguments":{"param":"value"}}}` + "\n\n")
+	builder.WriteString("Execution schema:\n")
+	builder.WriteString(indentLines(jsonString(aiActionSchema()), "  "))
+	builder.WriteString("\n\n")
 
-	builder.WriteString("Rules:\n")
-	builder.WriteString("- Output JSON only. Do not use markdown.\n")
-	builder.WriteString("- Use action=call only when one helper function is required next.\n")
-	builder.WriteString("- Keep helper arguments valid for the declared parameter names.\n")
-	builder.WriteString("- Prefer helper calls for deterministic filesystem, path, string, JSON, and environment work.\n")
-	builder.WriteString(fmt.Sprintf("- The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
+	builder.WriteString("Return JSON only. Keep helper arguments valid for the declared parameter names.\n")
+	builder.WriteString(fmt.Sprintf("The final value must match the declared return type %q.\n", function.Def.ReturnType.String()))
 
 	return builder.String(), nil
 }
@@ -169,11 +204,14 @@ func readPromptPlaceholder(body string, start int) (string, int, error) {
 func formatParams(params []ast.Param) string {
 	parts := make([]string, 0, len(params))
 	for _, param := range params {
-		if param.Type.Expr == "" {
-			parts = append(parts, param.Name)
-			continue
+		part := param.Name
+		if param.Type.Expr != "" {
+			part = fmt.Sprintf("%s: %s", part, param.Type.String())
 		}
-		parts = append(parts, fmt.Sprintf("%s: %s", param.Name, param.Type.String()))
+		if param.DefaultText != "" {
+			part = fmt.Sprintf("%s = %s", part, param.DefaultText)
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")
 }

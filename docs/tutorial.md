@@ -41,16 +41,23 @@ go build -o bin/vibelang ./cmd/vibelang
 Create a file named `hello.vibe`:
 
 ```python
-def greet(name: string) -> string:
-    Write a short, upbeat greeting for ${name}.
+def greet(name: string, tone: string = "upbeat") -> string:
+    Write a short, ${tone} greeting for ${name}.
     Keep it to one sentence.
 
 name = "Ada"
-message = greet(name)
+message = greet(name=name)
 print(message)
 ```
 
-The function body is plain text. `vibelang` passes the bound inputs to the model, asks for strict JSON, and then coerces the returned value to the declared type.
+The function body is plain text. `vibelang` passes the bound inputs to the model, sends a structured JSON schema to the local backend, and then coerces the returned value to the declared type.
+
+Calls can also mix positional and keyword arguments:
+
+```python
+print(greet("Ada"))
+print(greet(name="Ada", tone="playful"))
+```
 
 Inline prompts also work without defining a function first:
 
@@ -104,6 +111,7 @@ The trace is written to stderr and includes raw model responses and helper-call 
 
 - Read the [how-to guide](how-to-run-local-models.md) for backend-specific setup.
 - Read the [reference](reference.md) for language syntax and builtins.
+- Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
 - Run [examples/tool_chain.vibe](../examples/tool_chain.vibe) to see AI tool calls in action.
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.

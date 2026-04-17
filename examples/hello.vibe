@@ -1,7 +1,6 @@
-def summarize_weather(city: string, celsius: int) -> string:
-    Write one crisp sentence about the weather in ${city}.
-    Mention whether ${celsius} suggests a cold, mild, or warm day.
+def summarize_weather(city: string, tone: string = "crisp") -> string:
+    Write one ${tone} sentence about the weather in ${city}.
 
 city = "Berlin"
-forecast = summarize_weather(city, 18)
+forecast = summarize_weather(city=city)
 print(forecast)

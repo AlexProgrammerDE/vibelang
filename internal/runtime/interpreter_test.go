@@ -259,6 +259,150 @@ print(describe(values))
 	}
 }
 
+func TestInterpreterSupportsDefaultParametersAndKeywordCalls(t *testing.T) {
+	source := `def summarize(name: string, tone: string = "dry") -> string:
+    Return exactly: ${tone} summary for ${name}.
+
+print(summarize("Ada"))
+print(summarize(name="Ada", tone="playful"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"return","value":"dry summary for Ada"}`,
+			`{"action":"return","value":"playful summary for Ada"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "dry summary for Ada\nplayful summary for Ada\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "dry summary for Ada\nplayful summary for Ada\n", stdout.String())
+	}
+
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[0], "Return exactly: dry summary for Ada.") {
+		t.Fatalf("first prompt did not use the default parameter:\n%s", client.prompts[0])
+	}
+	if !strings.Contains(client.prompts[1], "Return exactly: playful summary for Ada.") {
+		t.Fatalf("second prompt did not use keyword arguments:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterAIHelpersCanUseDefaultParameters(t *testing.T) {
+	source := `def format_name(name: string, prefix: string = "Dr.") -> string:
+    Return exactly: ${prefix} ${name}
+
+def describe(name: string) -> string:
+    Call format_name with the provided name and return its output.
+
+print(describe("Ada"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"format_name","arguments":{"name":"Ada"}}}`,
+			`{"action":"return","value":"Dr. Ada"}`,
+			`{"action":"return","value":"Dr. Ada"}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Dr. Ada\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Dr. Ada\n", stdout.String())
+	}
+
+	if len(client.prompts) != 3 {
+		t.Fatalf("expected 3 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "Return exactly: Dr. Ada") {
+		t.Fatalf("helper prompt did not use the default parameter:\n%s", client.prompts[1])
+	}
+}
+
+func TestInterpreterBuiltinKeywordCallsUseDefaults(t *testing.T) {
+	source := `print(range(stop=5))
+print(range(start=2, stop=7))
+print(range(start=10, stop=4, step=-2))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	want := "[0,1,2,3,4]\n[2,3,4,5,6]\n[10,8,6]\n"
+	if stdout.String() != want {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", want, stdout.String())
+	}
+}
+
+func TestInterpreterAIHelpersCanCallRange(t *testing.T) {
+	source := `def make_numbers(stop: int) -> list[int]:
+    Call range to produce the numbers from zero up to ${stop}.
+
+print(json(make_numbers(4)))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"range","arguments":{"stop":4}}}`,
+			`{"action":"return","value":[0,1,2,3]}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "[0,1,2,3]\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "[0,1,2,3]\n", stdout.String())
+	}
+}
+
 func TestInterpreterInterpolatesExpressionsInInlinePrompts(t *testing.T) {
 	source := `items = ["alpha", "beta"]
 message = * mention ${items[1]} and the length ${len(items)}.

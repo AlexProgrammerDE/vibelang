@@ -16,8 +16,10 @@ func (t TypeRef) String() string {
 }
 
 type Param struct {
-	Name string
-	Type TypeRef
+	Name        string
+	Type        TypeRef
+	Default     Expr
+	DefaultText string
 }
 
 type Stmt interface {
@@ -151,10 +153,15 @@ type BinaryExpr struct {
 func (*BinaryExpr) exprNode()         {}
 func (e *BinaryExpr) LineNumber() int { return e.Line }
 
+type CallArgument struct {
+	Name  string
+	Value Expr
+}
+
 type CallExpr struct {
 	Line      int
 	Callee    Expr
-	Arguments []Expr
+	Arguments []CallArgument
 }
 
 func (*CallExpr) exprNode()         {}

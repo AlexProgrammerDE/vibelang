@@ -4,7 +4,7 @@ This guide is for developers who already understand what `vibelang` is and want 
 
 ## Run With Ollama
 
-Ollama serves its local API at `http://localhost:11434/api` by default. `vibelang` uses the non-streaming `POST /api/generate` endpoint in JSON mode.
+Ollama serves its local API at `http://localhost:11434/api` by default. `vibelang` uses the non-streaming `POST /api/chat` endpoint with structured JSON output, and falls back to `POST /api/generate` when needed.
 
 Start Ollama:
 
@@ -36,7 +36,7 @@ Useful flags:
 
 ## Run With llama.cpp
 
-`vibelang` expects a running `llama-server`. It tries the native `/completion` endpoint first and falls back to the OpenAI-compatible `/v1/chat/completions` route when needed.
+`vibelang` expects a running `llama-server`. It uses the OpenAI-compatible `/v1/chat/completions` route with `response_format` first and falls back to the native `/completion` endpoint when needed.
 
 Start the server:
 
@@ -64,6 +64,7 @@ These settings usually help:
 - keep `--max-steps` small unless helper chains are essential
 - keep function instructions specific about shape and type
 - declare return types instead of leaving them as `any`
+- prefer explicit default parameters and keyword arguments when a function has optional inputs
 
 ## Troubleshoot Common Failures
 

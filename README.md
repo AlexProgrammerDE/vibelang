@@ -6,11 +6,13 @@
 
 - Uses indentation-sensitive, Python-like syntax for variables, expressions, loops, and conditionals.
 - Treats every `def` body as natural-language instructions instead of imperative code.
+- Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
 - Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, and environment helpers.
 - Runs against local model servers, with first-class support for Ollama and `llama.cpp`.
+- Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 
 ## Quick Start
 
@@ -40,12 +42,11 @@ If your local model tag or GGUF filename uses a different name, pass that exact 
 ## Example
 
 ```python
-def summarize_weather(city: string, celsius: int) -> string:
-    Write one crisp sentence about the weather in ${city}.
-    Mention whether ${celsius} suggests a cold, mild, or warm day.
+def summarize_weather(city: string, tone: string = "crisp") -> string:
+    Write one ${tone} sentence about the weather in ${city}.
 
 city = "Berlin"
-forecast = summarize_weather(city, 18)
+forecast = summarize_weather(city=city)
 print(forecast)
 ```
 
@@ -66,8 +67,8 @@ else:
 Prompt interpolation is expression-aware, not just name-aware:
 
 ```python
-def explain_file(path: string, digits: string) -> string:
-    Write one sentence about ${basename(path)} inside ${dirname(path)}.
+def explain_file(path: string, digits: string, tone: string = "matter-of-fact") -> string:
+    Write one ${tone} sentence about ${basename(path)} inside ${dirname(path)}.
     Mention that ${digits} has ${len(digits)} characters.
 ```
 

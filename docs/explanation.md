@@ -28,6 +28,8 @@ Inline `* prompt` expressions take the same idea one step further. They let you 
 
 Instead of depending on provider-specific tool-calling features, `vibelang` asks the model to emit one JSON object per step. That keeps the execution model portable across Ollama and `llama.cpp`.
 
+The transport layer still leans into modern local-model behavior. The interpreter now sends chat-style requests with an explicit JSON schema to Ollama and the `llama.cpp` OpenAI-compatible server. That gives Gemma 4 a cleaner separation between stable execution rules and the per-call user payload while preserving the same runtime loop.
+
 The loop looks like this:
 
 1. build a prompt from the function body, bound inputs, helper list, and prior tool results
@@ -46,6 +48,7 @@ Without the interpreter, a prompt program quickly turns into opaque glue code. T
 - loops and conditionals
 - builtins for routine data work
 - builtin tools for file access, path handling, JSON, strings, and environment inspection
+- Python-like default parameters and keyword arguments for optional inputs
 - type coercion for model outputs
 - bounded helper-call recursion
 

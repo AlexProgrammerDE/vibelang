@@ -13,7 +13,7 @@
 ### Function Definition
 
 ```python
-def name(param: type, other: type) -> return_type:
+def name(param: type, other: type = "default") -> return_type:
     Plain-language instructions.
     These lines are preserved as raw text.
 ```
@@ -24,6 +24,7 @@ Notes:
 - `${...}` placeholders are evaluated as normal vibelang expressions before the prompt is sent to the model.
 - Prompt interpolation can use arguments, current values, indexing, arithmetic, and prompt-safe builtins such as `len`, `json`, `basename`, or `join_path`.
 - Parameter and return types are optional. Omitted types default to `any`.
+- Parameters may declare default values. As in Python, required parameters must come before defaulted parameters.
 
 ### Inline Prompt Expression
 
@@ -67,8 +68,14 @@ Supported expressions:
 - arithmetic: `+`, `-`, `*`, `/`, `%`
 - comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`
 - boolean operators: `and`, `or`, `not`
-- calls: `fn(arg1, arg2)`
+- calls: `fn(arg1, arg2)` and `fn(name="Ada", tone="dry")`
 - indexing: `items[0]`, `record["name"]`
+
+Call notes:
+
+- Keyword arguments must follow positional arguments.
+- User-defined functions and eligible builtins both accept keyword arguments.
+- Default parameter values are applied when arguments are omitted.
 
 ## Types
 
@@ -142,6 +149,7 @@ Behavior:
 
 - `return` ends the function.
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
+- Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
 - Helper calls are limited by `--max-steps`.
 - Nested AI execution is limited by `--max-depth`.
 

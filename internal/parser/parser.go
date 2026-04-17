@@ -177,25 +177,27 @@ func (p *Parser) parseFunction(indent int) (ast.Stmt, error) {
 	}
 
 	params := make([]ast.Param, 0)
+	seenDefault := false
 	if !cursor.match(lexer.TokenRParen) {
 		for {
-			paramName, err := cursor.expect(lexer.TokenIdentifier)
+			paramTokens, err := cursor.collectUntilTopLevel(lexer.TokenComma, lexer.TokenRParen)
 			if err != nil {
 				return nil, err
 			}
-			paramType := ast.TypeRef{}
-			if cursor.match(lexer.TokenColon) {
-				typeTokens, err := cursor.collectUntilTopLevel(lexer.TokenComma, lexer.TokenRParen)
-				if err != nil {
-					return nil, err
-				}
-				if len(typeTokens) == 0 {
-					return nil, fmt.Errorf("line %d: expected parameter type", line.Number)
-				}
-				paramType = ast.TypeRef{Expr: tokensToText(typeTokens)}
+			param, err := parseParamTokens(paramTokens, line.Number)
+			if err != nil {
+				return nil, err
 			}
-			params = append(params, ast.Param{Name: paramName.Lexeme, Type: paramType})
+			if param.Default != nil {
+				seenDefault = true
+			} else if seenDefault {
+				return nil, fmt.Errorf("line %d: parameters without defaults cannot follow parameters with defaults", line.Number)
+			}
+			params = append(params, param)
 			if cursor.match(lexer.TokenComma) {
+				if cursor.match(lexer.TokenRParen) {
+					break
+				}
 				continue
 			}
 			if _, err := cursor.expect(lexer.TokenRParen); err != nil {
@@ -688,6 +690,81 @@ func parsePromptToken(token lexer.Token, expectColon bool) (ast.Expr, error) {
 	return &ast.PromptExpr{Line: token.Line, Text: text}, nil
 }
 
+func parseParamTokens(tokens []lexer.Token, line int) (ast.Param, error) {
+	if len(tokens) == 0 {
+		return ast.Param{}, fmt.Errorf("line %d: expected parameter", line)
+	}
+	if tokens[0].Kind != lexer.TokenIdentifier {
+		return ast.Param{}, fmt.Errorf("line %d:%d: expected parameter name", tokens[0].Line, tokens[0].Column)
+	}
+
+	param := ast.Param{Name: tokens[0].Lexeme}
+	index := 1
+	hasDefault := false
+
+	if index < len(tokens) && tokens[index].Kind == lexer.TokenColon {
+		index++
+		typeTokens, nextIndex, foundDefault := collectTopLevelUntil(tokens, index, lexer.TokenAssign)
+		if len(typeTokens) == 0 {
+			return ast.Param{}, fmt.Errorf("line %d: expected parameter type", line)
+		}
+		param.Type = ast.TypeRef{Expr: tokensToText(typeTokens)}
+		index = nextIndex
+		if foundDefault {
+			hasDefault = true
+			index++
+		}
+	} else if index < len(tokens) && tokens[index].Kind == lexer.TokenAssign {
+		hasDefault = true
+		index++
+	}
+
+	if index < len(tokens) {
+		if !hasDefault {
+			return ast.Param{}, fmt.Errorf("line %d:%d: unexpected token %q", tokens[index].Line, tokens[index].Column, tokens[index].Lexeme)
+		}
+		defaultExpr, err := parseExpressionTokens(tokens[index:])
+		if err != nil {
+			return ast.Param{}, err
+		}
+		param.Default = defaultExpr
+		param.DefaultText = tokensToText(tokens[index:])
+	}
+
+	return param, nil
+}
+
+func collectTopLevelUntil(tokens []lexer.Token, start int, delimiter lexer.TokenKind) ([]lexer.Token, int, bool) {
+	collected := make([]lexer.Token, 0)
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+
+	for index := start; index < len(tokens); index++ {
+		token := tokens[index]
+		if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && token.Kind == delimiter {
+			return collected, index, true
+		}
+		switch token.Kind {
+		case lexer.TokenLParen:
+			parenDepth++
+		case lexer.TokenRParen:
+			parenDepth--
+		case lexer.TokenLBracket:
+			bracketDepth++
+		case lexer.TokenRBracket:
+			bracketDepth--
+		case lexer.TokenLBrace:
+			braceDepth++
+		case lexer.TokenRBrace:
+			braceDepth--
+		}
+		collected = append(collected, token)
+	}
+
+	return collected, len(tokens), false
+}
+
 type exprParser struct {
 	tokens []lexer.Token
 	index  int
@@ -801,15 +878,24 @@ func (p *exprParser) parsePostfix() (ast.Expr, error) {
 
 	for {
 		if p.match(lexer.TokenLParen) {
-			args := make([]ast.Expr, 0)
+			args := make([]ast.CallArgument, 0)
+			seenKeyword := false
 			if !p.match(lexer.TokenRParen) {
 				for {
-					arg, err := p.parseExpression()
+					arg, err := p.parseCallArgument()
 					if err != nil {
 						return nil, err
 					}
+					if arg.Name != "" {
+						seenKeyword = true
+					} else if seenKeyword {
+						return nil, p.errorf("positional arguments cannot follow keyword arguments")
+					}
 					args = append(args, arg)
 					if p.match(lexer.TokenComma) {
+						if p.match(lexer.TokenRParen) {
+							break
+						}
 						continue
 					}
 					if !p.match(lexer.TokenRParen) {
@@ -836,6 +922,24 @@ func (p *exprParser) parsePostfix() (ast.Expr, error) {
 
 		return expr, nil
 	}
+}
+
+func (p *exprParser) parseCallArgument() (ast.CallArgument, error) {
+	if p.check(lexer.TokenIdentifier) && p.checkNext(lexer.TokenAssign) {
+		name := p.advance()
+		p.advance()
+		value, err := p.parseExpression()
+		if err != nil {
+			return ast.CallArgument{}, err
+		}
+		return ast.CallArgument{Name: name.Lexeme, Value: value}, nil
+	}
+
+	value, err := p.parseExpression()
+	if err != nil {
+		return ast.CallArgument{}, err
+	}
+	return ast.CallArgument{Value: value}, nil
 }
 
 func (p *exprParser) parsePrimary() (ast.Expr, error) {
@@ -944,6 +1048,20 @@ func (p *exprParser) match(kinds ...lexer.TokenKind) bool {
 		}
 	}
 	return false
+}
+
+func (p *exprParser) check(kind lexer.TokenKind) bool {
+	if p.isAtEnd() {
+		return false
+	}
+	return p.tokens[p.index].Kind == kind
+}
+
+func (p *exprParser) checkNext(kind lexer.TokenKind) bool {
+	if p.index+1 >= len(p.tokens) {
+		return false
+	}
+	return p.tokens[p.index+1].Kind == kind
 }
 
 func (p *exprParser) advance() lexer.Token {

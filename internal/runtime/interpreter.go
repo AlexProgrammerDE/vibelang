@@ -95,7 +95,11 @@ func (i *Interpreter) executeBlock(ctx context.Context, env *Environment, statem
 func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, statement ast.Stmt) (controlSignal, error) {
 	switch node := statement.(type) {
 	case *ast.FunctionDef:
-		function := NewAIFunction(node)
+		defaults, err := i.evaluateParameterDefaults(ctx, env, node.Params)
+		if err != nil {
+			return signalNone, err
+		}
+		function := NewAIFunction(node, defaults)
 		env.Define(node.Name, function)
 		i.globals.Define(node.Name, function)
 		i.functions[node.Name] = function
@@ -309,13 +313,16 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 		if !ok {
 			return nil, fmt.Errorf("%s is not callable", typeName(callee))
 		}
-		args := make([]any, 0, len(node.Arguments))
+		args := make([]CallArgument, 0, len(node.Arguments))
 		for _, argExpr := range node.Arguments {
-			value, err := i.evaluateExpression(ctx, env, argExpr)
+			value, err := i.evaluateExpression(ctx, env, argExpr.Value)
 			if err != nil {
 				return nil, err
 			}
-			args = append(args, value)
+			args = append(args, CallArgument{
+				Name:  argExpr.Name,
+				Value: value,
+			})
 		}
 		return callable.Call(ctx, i, args)
 	case *ast.IndexExpr:
@@ -397,6 +404,7 @@ func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environme
 			ReturnType: ast.TypeRef{Expr: returnType},
 			Body:       prompt.Text,
 		},
+		defaults: map[string]any{},
 	}
 	return i.invokeAITask(ctx, task, env.SnapshotValues(), instructions, 0, "")
 }
@@ -426,7 +434,11 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			return nil, err
 		}
 
-		response, err := i.model.Generate(ctx, model.Request{Prompt: prompt})
+		response, err := i.model.Generate(ctx, model.Request{
+			System:     aiSystemPrompt(),
+			Prompt:     prompt,
+			JSONSchema: aiActionSchema(),
+		})
 		if err != nil {
 			return nil, fmt.Errorf("%s model request failed: %w", function.Name(), err)
 		}
@@ -454,7 +466,16 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 				return nil, fmt.Errorf("%s requested unknown helper %q", function.Name(), action.Call.Name)
 			}
 			spec := callee.ToolSpec()
-			bound, err := bindNamedArguments(action.Call.Name, spec.Params, action.Call.Arguments)
+			callArgs := namedCallArguments(action.Call.Arguments)
+			var bound map[string]any
+			switch named := callee.(type) {
+			case *AIFunction:
+				bound, err = named.bindArguments(callArgs)
+			case *builtinFunction:
+				bound, err = bindCallArguments(action.Call.Name, spec.Params, callArgs, named.defaults)
+			default:
+				bound, err = bindCallArguments(action.Call.Name, spec.Params, callArgs, nil)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -482,8 +503,32 @@ func (i *Interpreter) invokeTool(ctx context.Context, callable ToolCallable, bou
 		return i.invokeAIFunction(ctx, tool, bound, depth)
 	default:
 		spec := callable.ToolSpec()
-		return callable.Call(ctx, i, positionalArguments(spec.Params, bound))
+		values := positionalArguments(spec.Params, bound)
+		args := make([]CallArgument, 0, len(values))
+		for _, value := range values {
+			args = append(args, CallArgument{Value: value})
+		}
+		return callable.Call(ctx, i, args)
 	}
+}
+
+func (i *Interpreter) evaluateParameterDefaults(ctx context.Context, env *Environment, params []ast.Param) (map[string]any, error) {
+	defaults := make(map[string]any)
+	for _, param := range params {
+		if param.Default == nil {
+			continue
+		}
+		value, err := i.evaluateExpression(ctx, env, param.Default)
+		if err != nil {
+			return nil, fmt.Errorf("evaluate default for %q: %w", param.Name, err)
+		}
+		coerced, err := Coerce(param.Type.String(), value)
+		if err != nil {
+			return nil, fmt.Errorf("default for %q: %w", param.Name, err)
+		}
+		defaults[param.Name] = coerced
+	}
+	return defaults, nil
 }
 
 func (i *Interpreter) tracef(format string, args ...any) {
@@ -491,6 +536,14 @@ func (i *Interpreter) tracef(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(i.trace, format+"\n", args...)
+}
+
+func namedCallArguments(bound map[string]any) []CallArgument {
+	args := make([]CallArgument, 0, len(bound))
+	for name, value := range bound {
+		args = append(args, CallArgument{Name: name, Value: value})
+	}
+	return args
 }
 
 func evaluateBinary(operator string, left, right any) (any, error) {

@@ -15,7 +15,9 @@ type Config struct {
 }
 
 type Request struct {
-	Prompt string
+	System     string
+	Prompt     string
+	JSONSchema map[string]any
 }
 
 type Response struct {

@@ -21,7 +21,25 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("float", builtinFloat, "float", "Convert a value to a float.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("bool", builtinBool, "bool", "Convert a value to a bool.", ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("type", builtinType, "string", "Return the runtime type name for a value.", ast.Param{Name: "value"}))
-	registerBuiltin(interpreter, &builtinFunction{name: "range", call: builtinRange, promptSafe: true})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "range",
+		call: builtinRange,
+		tool: &ToolSpec{
+			Name:       "range",
+			ReturnType: ast.TypeRef{Expr: "list[int]"},
+			Body:       "Return a list of integers from start (inclusive) to stop (exclusive), stepping by step.",
+			Params: []ast.Param{
+				{Name: "start", Type: ast.TypeRef{Expr: "int"}, DefaultText: "0"},
+				{Name: "stop", Type: ast.TypeRef{Expr: "int"}},
+				{Name: "step", Type: ast.TypeRef{Expr: "int"}, DefaultText: "1"},
+			},
+		},
+		defaults: map[string]any{
+			"start": int64(0),
+			"step":  int64(1),
+		},
+		promptSafe: true,
+	})
 	registerBuiltin(interpreter, promptToolBuiltin("append", builtinAppend, "list", "Return a new list with one value appended.", ast.Param{Name: "list", Type: ast.TypeRef{Expr: "list"}}, ast.Param{Name: "value"}))
 	registerBuiltin(interpreter, promptToolBuiltin("keys", builtinKeys, "list[string]", "Return the sorted keys from a dict.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("values", builtinValues, "list", "Return the dict values in sorted-key order.", ast.Param{Name: "dict", Type: ast.TypeRef{Expr: "dict"}}))

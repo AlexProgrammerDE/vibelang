@@ -160,3 +160,47 @@ func TestParseListLiteralWithMultipleStrings(t *testing.T) {
 		t.Fatalf("expected 3 list elements, got %d", len(list.Elements))
 	}
 }
+
+func TestParseFunctionWithDefaultParametersAndKeywordCall(t *testing.T) {
+	source := `def summarize(name: string, tone: string = "dry") -> string:
+    Speak in a ${tone} tone about ${name}.
+
+result = summarize(name="Ada", tone="playful")
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(program.Statements))
+	}
+
+	function, ok := program.Statements[0].(*ast.FunctionDef)
+	if !ok {
+		t.Fatalf("expected FunctionDef, got %T", program.Statements[0])
+	}
+
+	if len(function.Params) != 2 {
+		t.Fatalf("expected 2 parameters, got %d", len(function.Params))
+	}
+
+	if function.Params[1].Name != "tone" {
+		t.Fatalf("expected second parameter to be tone, got %q", function.Params[1].Name)
+	}
+
+	callAssign, ok := program.Statements[1].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[1])
+	}
+
+	call, ok := callAssign.Value.(*ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected CallExpr, got %T", callAssign.Value)
+	}
+
+	if len(call.Arguments) != 2 {
+		t.Fatalf("expected 2 call arguments, got %d", len(call.Arguments))
+	}
+}
