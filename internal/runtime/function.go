@@ -38,6 +38,7 @@ type builtinFunction struct {
 	defaults   map[string]any
 	promptSafe bool
 	bindArgs   bool
+	hiddenTool bool
 }
 
 func (b *builtinFunction) Name() string {

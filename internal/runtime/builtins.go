@@ -70,6 +70,42 @@ func registerBuiltins(interpreter *Interpreter) {
 	registerBuiltin(interpreter, promptToolBuiltin("cwd", builtinCWD, "string", "Return the current working directory."))
 	registerBuiltin(interpreter, promptToolBuiltin("file_exists", builtinFileExists, "bool", "Return true when the given path exists.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("read_file", builtinReadFile, "string", "Read a UTF-8 text file and return its contents.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "temp_dir",
+		call: builtinTempDir,
+		tool: &ToolSpec{
+			Name:       "temp_dir",
+			ReturnType: ast.TypeRef{Expr: "context"},
+			Body:       "Create a temporary directory context for use in a with block.",
+			Params: []ast.Param{
+				{Name: "prefix", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"vibe-\""},
+			},
+		},
+		defaults: map[string]any{
+			"prefix": "vibe-",
+		},
+		bindArgs:   true,
+		hiddenTool: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "temp_file",
+		call: builtinTempFile,
+		tool: &ToolSpec{
+			Name:       "temp_file",
+			ReturnType: ast.TypeRef{Expr: "context"},
+			Body:       "Create a temporary file context for use in a with block.",
+			Params: []ast.Param{
+				{Name: "prefix", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"vibe-\""},
+				{Name: "suffix", Type: ast.TypeRef{Expr: "string"}, DefaultText: "\"\""},
+			},
+		},
+		defaults: map[string]any{
+			"prefix": "vibe-",
+			"suffix": "",
+		},
+		bindArgs:   true,
+		hiddenTool: true,
+	})
 	registerBuiltin(interpreter, promptToolBuiltin("join_path", builtinJoinPath, "string", "Join path segments using the host filesystem separator.", ast.Param{Name: "parts", Type: ast.TypeRef{Expr: "list[string]"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("abs_path", builtinAbsPath, "string", "Return the absolute version of a path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
 	registerBuiltin(interpreter, promptToolBuiltin("dirname", builtinDirname, "string", "Return the parent directory for a path.", ast.Param{Name: "path", Type: ast.TypeRef{Expr: "string"}}))
@@ -104,7 +140,7 @@ func registerBuiltin(interpreter *Interpreter, builtin *builtinFunction) {
 	interpreter.globals.Define(builtin.name, builtin)
 	interpreter.mu.Lock()
 	defer interpreter.mu.Unlock()
-	if builtin.tool != nil {
+	if builtin.tool != nil && !builtin.hiddenTool {
 		interpreter.tools[builtin.name] = builtin
 	}
 	if builtin.promptSafe {
@@ -442,6 +478,74 @@ func builtinReadFile(_ context.Context, _ *Interpreter, args []any) (any, error)
 		return nil, err
 	}
 	return string(content), nil
+}
+
+func builtinTempDir(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("temp_dir", args, 1); err != nil {
+		return nil, err
+	}
+	prefix, err := requireString("temp_dir", args[0], "prefix")
+	if err != nil {
+		return nil, err
+	}
+
+	path := ""
+	return newManagedContext("temp_dir", func(_ context.Context, _ *Interpreter) (any, error) {
+		created, err := os.MkdirTemp("", prefix)
+		if err != nil {
+			return nil, err
+		}
+		path = created
+		return created, nil
+	}, func(_ context.Context, _ *Interpreter, _ error) error {
+		if path == "" {
+			return nil
+		}
+		removePath := path
+		path = ""
+		if err := os.RemoveAll(removePath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}), nil
+}
+
+func builtinTempFile(_ context.Context, _ *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("temp_file", args, 2); err != nil {
+		return nil, err
+	}
+	prefix, err := requireString("temp_file", args[0], "prefix")
+	if err != nil {
+		return nil, err
+	}
+	suffix, err := requireString("temp_file", args[1], "suffix")
+	if err != nil {
+		return nil, err
+	}
+
+	path := ""
+	return newManagedContext("temp_file", func(_ context.Context, _ *Interpreter) (any, error) {
+		file, err := os.CreateTemp("", prefix+"*"+suffix)
+		if err != nil {
+			return nil, err
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(file.Name())
+			return nil, err
+		}
+		path = file.Name()
+		return path, nil
+	}, func(_ context.Context, _ *Interpreter, _ error) error {
+		if path == "" {
+			return nil
+		}
+		removePath := path
+		path = ""
+		if err := os.Remove(removePath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}), nil
 }
 
 func builtinWriteFile(_ context.Context, _ *Interpreter, args []any) (any, error) {

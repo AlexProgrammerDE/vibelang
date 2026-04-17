@@ -337,6 +337,25 @@ for name in ["alpha", "beta"]:
     print("created " + basename(path))
 ```
 
+When the resource itself should only exist for the lifetime of a block, prefer `with`:
+
+```python
+with temp_dir(prefix="vibelang-demo-") as workspace:
+    draft = join_path([workspace, "draft.txt"])
+    write_file(draft, "hello")
+    print(file_exists(draft))
+
+print(file_exists(workspace))
+```
+
+`with` is also the cleanest way to scope mutex ownership and OpenTelemetry spans:
+
+```python
+mu = mutex()
+with mutex_guard(mu):
+    print(mutex_lock(mu, timeout_ms=1))
+```
+
 The runtime also ships URL and JSON HTTP helpers for deterministic request plumbing:
 
 ```python
@@ -427,6 +446,7 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/collections.vibe](../examples/collections.vibe) to see Python-shaped collection helpers such as `all`, `any`, `reversed`, `flatten`, and `batched`.
 - Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
+- Run [examples/with.vibe](../examples/with.vibe) to see `with`, temporary resources, and mutex guards.
 - Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
 - Run [examples/http_static.vibe](../examples/http_static.vibe) to see deterministic static asset serving with `application/wasm` detection.

@@ -130,6 +130,7 @@ Supported statements:
 - assignment: `name = expression`, `left, right = expression`
 - index assignment: `items[0] = "updated"`
 - member assignment: `config.name = "updated"`
+- scoped resource management: `with expression:` and `with expression as name:`
 - deferred cleanup: `defer expression`
 - assertions: `assert condition`, `assert condition, "message"`
 - expression statement: `print(value)`
@@ -173,6 +174,21 @@ Notes:
 - They run on normal completion, `break`, `continue`, and errors.
 - Deferred expressions capture the current visible non-function values at registration time, so later mutations do not silently change cleanup targets.
 - A deferred expression error is reported after all remaining deferred expressions have run.
+
+### With Statement
+
+```python
+with temp_file(prefix="notes-", suffix=".txt") as path:
+    append_file(path, "hello")
+    print(read_file(path))
+```
+
+Notes:
+
+- `with` evaluates a managed context expression, enters it, runs the block, and then always exits it.
+- The optional `as target` binding receives the entered value, such as a temporary path or span handle.
+- Exit runs on normal completion, `break`, `continue`, and errors.
+- Native managed contexts currently include `temp_dir`, `temp_file`, `mutex_guard`, and `otel_span_scope`.
 
 ### Assert Statement
 
@@ -321,6 +337,8 @@ Notes:
 - `glob(pattern)`: return sorted matches for a glob pattern
 - `file_exists(path)`: return whether a path exists
 - `read_file(path)`: read a UTF-8 text file
+- `temp_dir(prefix="vibe-")`: create a temporary directory context for `with`
+- `temp_file(prefix="vibe-", suffix="")`: create a temporary file context for `with`
 - `join_path(parts)`: join path segments
 - `abs_path(path)`: resolve an absolute path
 - `dirname(path)`: return the parent directory
@@ -409,6 +427,7 @@ Notes:
 - `channel_select(channels, timeout_ms=-1)`: wait on many channels and receive a dict with `channel`, `value`, `ok`, `closed`, and `timeout`
 - `channel_close(channel)`: close a channel
 - `mutex()`: create a mutex handle
+- `mutex_guard(mutex, timeout_ms=-1)`: create a mutex guard context for `with`
 - `mutex_lock(mutex, timeout_ms=-1)`: acquire a mutex
 - `mutex_unlock(mutex)`: release a mutex
 - `wait_group()`: create a wait group handle
@@ -423,6 +442,7 @@ Notes:
 - `log(message, level="info", fields={})`: emit one structured JSON log record to stderr
 - `otel_init_stdout(service_name="vibelang", pretty=true)`: configure stdout OpenTelemetry tracing to stderr
 - `otel_span_start(name, attributes={})`: start a span and return a handle
+- `otel_span_scope(name, attributes={})`: create a span context for `with`
 - `otel_span_event(span, name, attributes={})`: add an event to a span
 - `otel_span_end(span, attributes={})`: finish a span
 - `otel_flush()`: flush pending telemetry exports

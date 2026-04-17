@@ -84,6 +84,24 @@ func registerObservabilityBuiltins(interpreter *Interpreter) {
 		bindArgs: true,
 	})
 	registerBuiltin(interpreter, &builtinFunction{
+		name: "otel_span_scope",
+		call: builtinOTelSpanScope,
+		tool: &ToolSpec{
+			Name:       "otel_span_scope",
+			ReturnType: ast.TypeRef{Expr: "context"},
+			Body:       "Create an OpenTelemetry span context for use in a with block.",
+			Params: []ast.Param{
+				{Name: "name", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "attributes", Type: ast.TypeRef{Expr: "dict"}, DefaultText: "{}"},
+			},
+		},
+		defaults: map[string]any{
+			"attributes": map[string]any{},
+		},
+		bindArgs:   true,
+		hiddenTool: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
 		name: "otel_span_event",
 		call: builtinOTelSpanEvent,
 		tool: &ToolSpec{
@@ -194,6 +212,46 @@ func builtinOTelSpanStart(ctx context.Context, interpreter *Interpreter, args []
 		return nil, err
 	}
 	return handleID, nil
+}
+
+func builtinOTelSpanScope(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("otel_span_scope", args, 2); err != nil {
+		return nil, err
+	}
+	name, err := requireString("otel_span_scope", args[0], "name")
+	if err != nil {
+		return nil, err
+	}
+	attributes, ok := asMap(args[1])
+	if !ok {
+		return nil, fmt.Errorf("otel_span_scope expects attributes to be a dict")
+	}
+
+	attributes = cloneValue(attributes).(map[string]any)
+	handleID := ""
+	return newManagedContext("otel_span_scope", func(ctx context.Context, interpreter *Interpreter) (any, error) {
+		if err := interpreter.telemetry.ensure(ctx); err != nil {
+			return nil, err
+		}
+		handleID = interpreter.nextHandle("otel_span")
+		if err := interpreter.telemetry.StartSpan(ctx, handleID, name, attributes); err != nil {
+			handleID = ""
+			return nil, err
+		}
+		return handleID, nil
+	}, func(_ context.Context, interpreter *Interpreter, priorErr error) error {
+		if handleID == "" {
+			return nil
+		}
+		endAttributes := map[string]any{}
+		if priorErr != nil {
+			endAttributes["vibelang.error"] = priorErr.Error()
+		}
+		activeHandle := handleID
+		handleID = ""
+		_, err := interpreter.telemetry.EndSpan(activeHandle, endAttributes)
+		return err
+	}), nil
 }
 
 func builtinOTelSpanEvent(_ context.Context, interpreter *Interpreter, args []any) (any, error) {

@@ -1545,6 +1545,57 @@ print(snapshot["tasks_spawned_total"] >= 1)
 	}
 }
 
+func TestInterpreterWithTempDirCleansUpOnError(t *testing.T) {
+	source := `try:
+    with temp_dir(prefix="vibelang-test-") as workspace:
+        file = join_path([workspace, "note.txt"])
+        write_file(file, "hello")
+        print(file_exists(file))
+        fail(workspace)
+except removed:
+    print(file_exists(removed))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "true\nfalse\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "true\nfalse\n", stdout.String())
+	}
+}
+
+func TestInterpreterWithMutexGuardReleasesLock(t *testing.T) {
+	source := `mu = mutex()
+with mutex_guard(mu):
+    print(mutex_lock(mu, timeout_ms=1))
+print(mutex_lock(mu, timeout_ms=1))
+print(mutex_unlock(mu))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "false\ntrue\ntrue\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "false\ntrue\ntrue\n", stdout.String())
+	}
+}
+
 func TestInterpreterSupportsAssertStatements(t *testing.T) {
 	source := `assert len([1, 2, 3]) == 3
 print("ok")

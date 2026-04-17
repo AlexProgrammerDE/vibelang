@@ -231,6 +231,32 @@ func TestParseAssertStatement(t *testing.T) {
 	}
 }
 
+func TestParseWithStatement(t *testing.T) {
+	source := `with temp_dir(prefix="vibe-test-") as workspace:
+    print(workspace)
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(program.Statements))
+	}
+
+	withStmt, ok := program.Statements[0].(*ast.WithStmt)
+	if !ok {
+		t.Fatalf("expected WithStmt, got %T", program.Statements[0])
+	}
+	if withStmt.Target == nil {
+		t.Fatalf("expected with target to be parsed")
+	}
+	if len(withStmt.Body) != 1 {
+		t.Fatalf("expected with body length 1, got %d", len(withStmt.Body))
+	}
+}
+
 func TestParseInlinePromptsPreserveRawText(t *testing.T) {
 	source := `path = "notes.txt"
 digits = * find the first 5 digits of pi, then return them as a string.

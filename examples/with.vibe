@@ -1,0 +1,16 @@
+with temp_dir(prefix="vibelang-example-") as workspace:
+    note = join_path([workspace, "note.txt"])
+    write_file(note, "hello")
+    print(file_exists(note))
+print(file_exists(workspace))
+
+with temp_file(prefix="vibelang-example-", suffix=".txt") as draft:
+    append_file(draft, "memo")
+    print(read_file(draft))
+print(file_exists(draft))
+
+mu = mutex()
+with mutex_guard(mu):
+    print(mutex_lock(mu, timeout_ms=1))
+print(mutex_lock(mu, timeout_ms=1))
+print(mutex_unlock(mu))

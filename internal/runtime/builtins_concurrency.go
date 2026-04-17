@@ -156,6 +156,24 @@ func registerConcurrencyBuiltins(interpreter *Interpreter) {
 	})
 	registerBuiltin(interpreter, promptToolBuiltin("mutex", builtinMutex, "string", "Create a mutex handle."))
 	registerBuiltin(interpreter, &builtinFunction{
+		name: "mutex_guard",
+		call: builtinMutexGuard,
+		tool: &ToolSpec{
+			Name:       "mutex_guard",
+			ReturnType: ast.TypeRef{Expr: "context"},
+			Body:       "Create a mutex guard context for use in a with block.",
+			Params: []ast.Param{
+				{Name: "mutex", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "-1"},
+			},
+		},
+		defaults: map[string]any{
+			"timeout_ms": int64(-1),
+		},
+		bindArgs:   true,
+		hiddenTool: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
 		name: "mutex_lock",
 		call: builtinMutexLock,
 		tool: &ToolSpec{
@@ -505,6 +523,37 @@ func builtinMutex(_ context.Context, interpreter *Interpreter, args []any) (any,
 	handleID := interpreter.nextHandle("mutex")
 	interpreter.storeMutex(handleID, newMutexHandle())
 	return handleID, nil
+}
+
+func builtinMutexGuard(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("mutex_guard", args, 2); err != nil {
+		return nil, err
+	}
+	mutexHandle, err := requireString("mutex_guard", args[0], "mutex")
+	if err != nil {
+		return nil, err
+	}
+	timeoutMS, err := requireInt("mutex_guard", args[1], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+
+	return newManagedContext("mutex_guard", func(_ context.Context, interpreter *Interpreter) (any, error) {
+		lock, err := interpreter.lookupMutex(mutexHandle)
+		if err != nil {
+			return nil, err
+		}
+		if !lock.Lock(waitTimeout(timeoutMS)) {
+			return nil, fmt.Errorf("mutex_guard timed out after %dms", timeoutMS)
+		}
+		return mutexHandle, nil
+	}, func(_ context.Context, interpreter *Interpreter, _ error) error {
+		lock, err := interpreter.lookupMutex(mutexHandle)
+		if err != nil {
+			return err
+		}
+		return lock.Unlock()
+	}), nil
 }
 
 func builtinMutexLock(_ context.Context, interpreter *Interpreter, args []any) (any, error) {

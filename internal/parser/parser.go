@@ -105,6 +105,8 @@ func (p *Parser) parseStatement(indent int) (ast.Stmt, error) {
 		return p.parseMatch(indent)
 	case lexer.TokenWhile:
 		return p.parseWhile(indent)
+	case lexer.TokenWith:
+		return p.parseWith(indent)
 	case lexer.TokenTry:
 		return p.parseTry(indent)
 	case lexer.TokenDefer:
@@ -758,6 +760,71 @@ func (p *Parser) parseWhile(indent int) (ast.Stmt, error) {
 		Line:      line.Number,
 		Condition: condition,
 		Body:      body,
+	}, nil
+}
+
+func (p *Parser) parseWith(indent int) (ast.Stmt, error) {
+	line := p.lines[p.index]
+	cursor := newLineCursor(line.Tokens)
+	if _, err := cursor.expect(lexer.TokenWith); err != nil {
+		return nil, err
+	}
+
+	contextTokens, err := cursor.collectUntilTopLevel(lexer.TokenAs, lexer.TokenColon)
+	if err != nil {
+		return nil, err
+	}
+	if len(contextTokens) == 0 {
+		return nil, fmt.Errorf("line %d: with requires a context expression", line.Number)
+	}
+	contextExpr, err := parseExpressionTokens(contextTokens)
+	if err != nil {
+		return nil, err
+	}
+
+	var target ast.Expr
+	if cursor.match(lexer.TokenAs) {
+		targetTokens, err := cursor.collectUntilTopLevel(lexer.TokenColon)
+		if err != nil {
+			return nil, err
+		}
+		if len(targetTokens) == 0 {
+			return nil, fmt.Errorf("line %d: with target is required after as", line.Number)
+		}
+		target, err = parseTargetTokens(targetTokens)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateTargetExpression(target, line.Number); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := cursor.expect(lexer.TokenColon); err != nil {
+		return nil, err
+	}
+	if !cursor.done() {
+		return nil, fmt.Errorf("line %d: unexpected token %q", line.Number, cursor.peek().Lexeme)
+	}
+
+	p.index++
+	bodyIndent, ok, err := p.findCodeChildIndent(indent)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("line %d: with block is required", line.Number)
+	}
+
+	body, err := p.parseStatements(bodyIndent)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ast.WithStmt{
+		Line:    line.Number,
+		Context: contextExpr,
+		Target:  target,
+		Body:    body,
 	}, nil
 }
 

@@ -314,6 +314,8 @@ func (i *Interpreter) executeStatement(ctx context.Context, env *Environment, st
 				continue
 			}
 		}
+	case *ast.WithStmt:
+		return i.executeWithStatement(ctx, env, node, moduleDir)
 	case *ast.TryStmt:
 		return i.executeTryStatement(ctx, env, node, moduleDir)
 	case *ast.ForStmt:

@@ -133,6 +133,16 @@ jobs:
             exit 1
           fi
 
+      - name: Run deterministic with example
+        run: |
+          output="$(go run ./cmd/vibelang examples/with.vibe)"
+          expected=$'true\nfalse\nmemo\nfalse\nfalse\ntrue\ntrue\n'
+          if [ "$output"$'\n' != "$expected" ]; then
+            echo "unexpected with.vibe output"
+            printf 'got:\n%s\n' "$output"
+            exit 1
+          fi
+
       - name: Run deterministic cookie example
         run: |
           output="$(go run ./cmd/vibelang examples/cookies.vibe)"

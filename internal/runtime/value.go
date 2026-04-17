@@ -36,6 +36,8 @@ func stringify(value any) string {
 		return fmt.Sprintf("<function %s>", v.Name())
 	case MacroCallable:
 		return fmt.Sprintf("<macro %s>", v.Name())
+	case withContext:
+		return fmt.Sprintf("<context %s>", v.Name())
 	case *SetValue:
 		return fmt.Sprintf("set(%s)", jsonString(v.Values()))
 	default:
@@ -71,6 +73,8 @@ func typeName(value any) string {
 		return "function"
 	case MacroCallable:
 		return "macro"
+	case withContext:
+		return "context"
 	case *SetValue:
 		return "set"
 	default:

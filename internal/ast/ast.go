@@ -146,6 +146,16 @@ type WhileStmt struct {
 func (*WhileStmt) stmtNode()         {}
 func (s *WhileStmt) LineNumber() int { return s.Line }
 
+type WithStmt struct {
+	Line    int
+	Context Expr
+	Target  Expr
+	Body    []Stmt
+}
+
+func (*WithStmt) stmtNode()         {}
+func (s *WithStmt) LineNumber() int { return s.Line }
+
 type TryStmt struct {
 	Line      int
 	Body      []Stmt

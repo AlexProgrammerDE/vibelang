@@ -15,6 +15,7 @@
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
 - Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports structural `match` / `case` branching with wildcard, list, dict, and capture patterns plus optional `if` guards.
+- Supports Python-style `with` blocks backed by native managed resources such as temporary files, temporary directories, mutex guards, and OpenTelemetry span scopes.
 - Supports structured AI return types such as `dict{city: string, alerts: optional[list[string]]}` and `tuple[string, int]`, and turns them into tighter JSON schemas for model backends.
 - Constrains helper calls with per-helper JSON schemas, so models see the exact argument names, required fields, and types for each callable tool.
 - Supports deterministic `try` / `except` / `finally` blocks for builtin, tool, and model-call failures.
@@ -200,6 +201,17 @@ Assertions make deterministic invariants explicit:
 ```python
 snapshot = runtime_metrics()
 assert snapshot["go.goroutine.count"] >= 1, "expected at least one goroutine"
+```
+
+`with` blocks make temporary resources and scope-based cleanup explicit:
+
+```python
+with temp_dir(prefix="vibelang-demo-") as workspace:
+    note = join_path([workspace, "note.txt"])
+    write_file(note, "hello")
+    print(file_exists(note))
+
+print(file_exists(workspace))
 ```
 
 Pattern matching lets deterministic code branch on data shape before handing the rest to AI:
@@ -505,16 +517,16 @@ print(contains(html, "<li>shipped</li>"))
 
 The deterministic runtime now covers more of the boring work that AI functions should not hallucinate:
 
-- Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `read_json`, `write_json`, `read_yaml`, `write_yaml`, `read_toml`, `write_toml`
+- Filesystem: `read_file`, `write_file`, `append_file`, `copy_file`, `move_file`, `glob`, `temp_dir`, `temp_file`, `read_json`, `write_json`, `read_yaml`, `write_yaml`, `read_toml`, `write_toml`
 - Data: `json_parse`, `json_pretty`, `yaml_parse`, `yaml_stringify`, `toml_parse`, `toml_stringify`, `csv_parse`, `csv_stringify`, `set`, `set_add`, `set_remove`, `set_has`, `set_values`, `set_union`, `set_intersection`, `set_difference`, `set_symmetric_difference`, `dict_has`, `dict_get`, `dict_set`, `dict_merge`, `dict_delete`, `all`, `any`, `reversed`, `flatten`, `batched`, `sorted`, `unique`, `sum`, `min`, `max`
 - Paths and strings: `join_path`, `abs_path`, `dirname`, `basename`, `split`, `join`, `replace`, `contains`, `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `query_encode`, `query_decode`, `url_parse`, `url_build`, `html_escape`, `markdown_to_html`, `template_render`, `sha256`, `regex_match`, `regex_find_all`, `regex_replace`, `cookie_parse`, `cookie_build`
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `time_parse`, `time_format`, `time_add`, `time_diff`, `duration_parse`, `uuid_v4`, `uuid_v7`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `http_request_json`, `websocket_dial`, `websocket_send`, `websocket_recv`, `websocket_close`, `sse_event`, `socket_listen`, `socket_accept`, `socket_open`, `socket_write`, `socket_read`, `socket_local_addr`, `socket_remote_addr`, `socket_listener_close`, `socket_close`
-- Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
+- Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_guard`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
 - Services: `route_match`, `route_build`, `mime_type`, `http_static_response`, `http_serve`, `http_serve_routes`, `http_server_stop`, plus HTTP response-mode WebSocket upgrades through `{"websocket": ...}`
 - Runtime introspection: `tool_catalog`, `tool_describe`
-- Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`, `runtime_metrics`, `runtime_metric`
+- Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_scope`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`, `runtime_metrics`, `runtime_metric`
 
 Bundled `std` modules currently include:
 
