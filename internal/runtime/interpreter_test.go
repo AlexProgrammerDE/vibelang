@@ -428,6 +428,46 @@ print(describe("Ada"))
 	}
 }
 
+func TestInterpreterRejectsSelfRecursiveAIToolCalls(t *testing.T) {
+	source := `def summarize_weather(city: string, tone: string = "crisp") -> string:
+    Write one ${tone} sentence about the weather in ${city}.
+
+print(summarize_weather("Berlin"))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	client := &scriptedClient{
+		responses: []string{
+			`{"action":"call","call":{"name":"summarize_weather","arguments":{"city":"Berlin","tone":"crisp"}}}`,
+			`{"action":"return","value":"Berlin weather stays crisp and mild today."}`,
+		},
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{
+		Model:  client,
+		Stdout: &stdout,
+	})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "Berlin weather stays crisp and mild today.\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "Berlin weather stays crisp and mild today.\n", stdout.String())
+	}
+
+	if len(client.prompts) != 2 {
+		t.Fatalf("expected 2 model prompts, got %d", len(client.prompts))
+	}
+	if !strings.Contains(client.prompts[1], "rejected") {
+		t.Fatalf("second prompt did not include the rejected self-call history:\n%s", client.prompts[1])
+	}
+}
+
 func TestInterpreterBuiltinKeywordCallsUseDefaults(t *testing.T) {
 	source := `print(range(stop=5))
 print(range(start=2, stop=7))
@@ -551,6 +591,65 @@ print(snapshot["tasks_spawned_total"] >= 1)
 
 	if stdout.String() != "ready\n42\ntrue\n" {
 		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "ready\n42\ntrue\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsChannelSelect(t *testing.T) {
+	source := `first = channel(1)
+second = channel(1)
+channel_send(second, "beta")
+selected = channel_select([first, second])
+closed = channel(0)
+channel_close(closed)
+closed_packet = channel_select([closed], timeout_ms=1)
+timeout_packet = channel_select([first], timeout_ms=1)
+
+print(selected["channel"] == second)
+print(selected["value"])
+print(selected["closed"])
+print(closed_packet["closed"])
+print(timeout_packet["timeout"])
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "true\nbeta\nfalse\ntrue\ntrue\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "true\nbeta\nfalse\ntrue\ntrue\n", stdout.String())
+	}
+}
+
+func TestInterpreterSupportsComprehensions(t *testing.T) {
+	source := `item = "outside"
+names = [upper(name) for name in ["ada", "grace", "linus"] if "a" in name]
+lengths = {name: len(name) for name in names if len(name) > 3}
+
+print(item)
+print(json(names))
+print(json(lengths))
+`
+
+	program, err := parser.ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	interpreter := NewInterpreter(Config{Stdout: &stdout})
+	if err := interpreter.Execute(context.Background(), program); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if stdout.String() != "outside\n[\"ADA\",\"GRACE\"]\n{\"GRACE\":5}\n" {
+		t.Fatalf("unexpected stdout\nwant: %q\ngot:  %q", "outside\n[\"ADA\",\"GRACE\"]\n{\"GRACE\":5}\n", stdout.String())
 	}
 }
 

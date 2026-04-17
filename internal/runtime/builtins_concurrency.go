@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"time"
 
 	"vibelang/internal/ast"
 )
@@ -90,6 +92,23 @@ func registerConcurrencyBuiltins(interpreter *Interpreter) {
 			Body:       "Receive a value from a channel and return a dict with value, ok, and timeout fields.",
 			Params: []ast.Param{
 				{Name: "channel", Type: ast.TypeRef{Expr: "string"}},
+				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "-1"},
+			},
+		},
+		defaults: map[string]any{
+			"timeout_ms": int64(-1),
+		},
+		bindArgs: true,
+	})
+	registerBuiltin(interpreter, &builtinFunction{
+		name: "channel_select",
+		call: builtinChannelSelect,
+		tool: &ToolSpec{
+			Name:       "channel_select",
+			ReturnType: ast.TypeRef{Expr: "dict"},
+			Body:       "Wait on multiple channels and return a dict with channel, value, ok, closed, and timeout fields.",
+			Params: []ast.Param{
+				{Name: "channels", Type: ast.TypeRef{Expr: "list[string]"}},
 				{Name: "timeout_ms", Type: ast.TypeRef{Expr: "int"}, DefaultText: "-1"},
 			},
 		},
@@ -318,6 +337,83 @@ func builtinChannelRecv(_ context.Context, interpreter *Interpreter, args []any)
 		"value":   value,
 		"ok":      ok,
 		"timeout": timedOut,
+	}, nil
+}
+
+func builtinChannelSelect(_ context.Context, interpreter *Interpreter, args []any) (any, error) {
+	if err := expectArgCount("channel_select", args, 2); err != nil {
+		return nil, err
+	}
+	rawChannels, ok := asList(args[0])
+	if !ok {
+		return nil, fmt.Errorf("channel_select expects channels to be a list")
+	}
+	if len(rawChannels) == 0 {
+		return nil, fmt.Errorf("channel_select expects at least one channel")
+	}
+	timeoutMS, err := requireInt("channel_select", args[1], "timeout_ms")
+	if err != nil {
+		return nil, err
+	}
+
+	cases := make([]reflect.SelectCase, 0, len(rawChannels)+1)
+	channelIDs := make([]string, 0, len(rawChannels))
+	for _, raw := range rawChannels {
+		channelID, err := requireString("channel_select", raw, "channels")
+		if err != nil {
+			return nil, err
+		}
+		channel, err := interpreter.lookupChannel(channelID)
+		if err != nil {
+			return nil, err
+		}
+		channelIDs = append(channelIDs, channelID)
+		cases = append(cases, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(channel.ch),
+		})
+	}
+
+	timeoutIndex := -1
+	var timer *time.Timer
+	if timeoutMS >= 0 {
+		timer = time.NewTimer(waitTimeout(timeoutMS))
+		defer timer.Stop()
+		timeoutIndex = len(cases)
+		cases = append(cases, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(timer.C),
+		})
+	}
+
+	chosen, value, ok := reflect.Select(cases)
+	interpreter.incrementMetric("channel_selects_total", 1)
+	if timeoutIndex >= 0 && chosen == timeoutIndex {
+		return map[string]any{
+			"channel": nil,
+			"value":   nil,
+			"ok":      false,
+			"closed":  false,
+			"timeout": true,
+		}, nil
+	}
+
+	if !ok {
+		return map[string]any{
+			"channel": channelIDs[chosen],
+			"value":   nil,
+			"ok":      false,
+			"closed":  true,
+			"timeout": false,
+		}, nil
+	}
+
+	return map[string]any{
+		"channel": channelIDs[chosen],
+		"value":   cloneValue(value.Interface()),
+		"ok":      true,
+		"closed":  false,
+		"timeout": false,
 	}, nil
 }
 

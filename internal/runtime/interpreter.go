@@ -53,6 +53,11 @@ type Interpreter struct {
 
 type controlSignal int
 
+type aiCallFrame struct {
+	Name      string
+	Signature string
+}
+
 const (
 	signalNone controlSignal = iota
 	signalBreak
@@ -508,6 +513,35 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 			values = append(values, value)
 		}
 		return values, nil
+	case *ast.ListComprehensionExpr:
+		iterable, err := i.evaluateExpression(ctx, env, node.Iterable)
+		if err != nil {
+			return nil, err
+		}
+		items, err := iterableValues(iterable)
+		if err != nil {
+			return nil, err
+		}
+		compEnv := NewEnvironment(env)
+		values := make([]any, 0, len(items))
+		for _, item := range items {
+			compEnv.Set(node.Name, item)
+			if node.Condition != nil {
+				include, err := i.evaluateCondition(ctx, compEnv, node.Condition)
+				if err != nil {
+					return nil, err
+				}
+				if !include {
+					continue
+				}
+			}
+			value, err := i.evaluateExpression(ctx, compEnv, node.Element)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, value)
+		}
+		return values, nil
 	case *ast.DictLiteral:
 		values := make(map[string]any, len(node.Items))
 		for _, item := range node.Items {
@@ -516,6 +550,39 @@ func (i *Interpreter) evaluateExpression(ctx context.Context, env *Environment, 
 				return nil, err
 			}
 			value, err := i.evaluateExpression(ctx, env, item.Value)
+			if err != nil {
+				return nil, err
+			}
+			values[stringify(key)] = value
+		}
+		return values, nil
+	case *ast.DictComprehensionExpr:
+		iterable, err := i.evaluateExpression(ctx, env, node.Iterable)
+		if err != nil {
+			return nil, err
+		}
+		items, err := iterableValues(iterable)
+		if err != nil {
+			return nil, err
+		}
+		compEnv := NewEnvironment(env)
+		values := make(map[string]any, len(items))
+		for _, item := range items {
+			compEnv.Set(node.Name, item)
+			if node.Condition != nil {
+				include, err := i.evaluateCondition(ctx, compEnv, node.Condition)
+				if err != nil {
+					return nil, err
+				}
+				if !include {
+					continue
+				}
+			}
+			key, err := i.evaluateExpression(ctx, compEnv, node.Key)
+			if err != nil {
+				return nil, err
+			}
+			value, err := i.evaluateExpression(ctx, compEnv, node.Value)
 			if err != nil {
 				return nil, err
 			}
@@ -586,19 +653,19 @@ func (i *Interpreter) invokePromptExpression(ctx context.Context, env *Environme
 		},
 		defaults: map[string]any{},
 	}
-	return i.invokeAITask(ctx, task, env.SnapshotValues(), instructions, 0, "")
+	return i.invokeAITask(ctx, task, env.SnapshotValues(), instructions, 0, "", nil)
 }
 
-func (i *Interpreter) invokeAIFunction(ctx context.Context, function *AIFunction, args map[string]any, depth int) (any, error) {
+func (i *Interpreter) invokeAIFunction(ctx context.Context, function *AIFunction, args map[string]any, depth int, chain []aiCallFrame) (any, error) {
 	scope := function.scope(args)
 	instructions, err := i.renderPromptText(ctx, function.Def.Body, scope)
 	if err != nil {
 		return nil, err
 	}
-	return i.invokeAITask(ctx, function, scope, instructions, depth, function.Name())
+	return i.invokeAITask(ctx, function, scope, instructions, depth, function.Name(), extendAIChain(chain, function.Name(), args))
 }
 
-func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string) (any, error) {
+func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, args map[string]any, instructions string, depth int, excludeTool string, chain []aiCallFrame) (any, error) {
 	if i.model == nil {
 		return nil, fmt.Errorf("no model client configured")
 	}
@@ -665,7 +732,18 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 			}
 			i.incrementMetric("ai_tool_calls_total", 1)
 			i.tracef("%s calling %s with %s", function.Name(), action.Call.Name, jsonString(bound))
-			result, err := i.invokeTool(ctx, callee, bound, depth+1)
+			if rejection := rejectAIToolCall(action.Call.Name, bound, excludeTool, chain); rejection != "" {
+				i.incrementMetric("ai_tool_call_rejections_total", 1)
+				i.tracef("%s rejected call to %s with %s: %s", function.Name(), action.Call.Name, jsonString(bound), rejection)
+				history = append(history, ToolEvent{
+					Name:      action.Call.Name,
+					Arguments: bound,
+					Error:     rejection,
+					Rejected:  true,
+				})
+				continue
+			}
+			result, err := i.invokeTool(ctx, callee, bound, depth+1, chain)
 			if err != nil {
 				i.incrementMetric("ai_tool_call_errors_total", 1)
 				return nil, err
@@ -683,10 +761,10 @@ func (i *Interpreter) invokeAITask(ctx context.Context, function *AIFunction, ar
 	return nil, fmt.Errorf("%s exceeded the maximum AI tool steps of %d", function.Name(), i.maxAISteps)
 }
 
-func (i *Interpreter) invokeTool(ctx context.Context, callable ToolCallable, bound map[string]any, depth int) (any, error) {
+func (i *Interpreter) invokeTool(ctx context.Context, callable ToolCallable, bound map[string]any, depth int, chain []aiCallFrame) (any, error) {
 	switch tool := callable.(type) {
 	case *AIFunction:
-		return i.invokeAIFunction(ctx, tool, bound, depth)
+		return i.invokeAIFunction(ctx, tool, bound, depth, chain)
 	default:
 		spec := callable.ToolSpec()
 		values := positionalArguments(spec.Params, bound)
@@ -696,6 +774,34 @@ func (i *Interpreter) invokeTool(ctx context.Context, callable ToolCallable, bou
 		}
 		return callable.Call(ctx, i, args)
 	}
+}
+
+func extendAIChain(chain []aiCallFrame, name string, args map[string]any) []aiCallFrame {
+	next := make([]aiCallFrame, 0, len(chain)+1)
+	next = append(next, chain...)
+	next = append(next, aiCallFrame{
+		Name:      name,
+		Signature: aiCallSignature(name, args),
+	})
+	return next
+}
+
+func aiCallSignature(name string, args map[string]any) string {
+	return name + ":" + jsonString(args)
+}
+
+func rejectAIToolCall(name string, args map[string]any, excludeTool string, chain []aiCallFrame) string {
+	if excludeTool != "" && name == excludeTool {
+		return "the current AI function cannot call itself; return a value or choose a different helper"
+	}
+
+	signature := aiCallSignature(name, args)
+	for _, frame := range chain {
+		if frame.Signature == signature {
+			return fmt.Sprintf("the AI call %s(%s) is already active; repeating it would recurse indefinitely", name, jsonString(args))
+		}
+	}
+	return ""
 }
 
 func (i *Interpreter) evaluateParameterDefaults(ctx context.Context, env *Environment, params []ast.Param) (map[string]any, error) {

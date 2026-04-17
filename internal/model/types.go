@@ -9,6 +9,7 @@ type Config struct {
 	Provider    string
 	Endpoint    string
 	Model       string
+	APIKey      string
 	Temperature float64
 	MaxTokens   int
 	Timeout     time.Duration
@@ -29,6 +30,10 @@ type Client interface {
 }
 
 func (c Config) WithDefaults() Config {
+	switch c.Provider {
+	case "openai_compatible":
+		c.Provider = "openai-compatible"
+	}
 	if c.Provider == "" {
 		c.Provider = "ollama"
 	}
@@ -50,6 +55,10 @@ func (c Config) WithDefaults() Config {
 			c.Endpoint = "http://127.0.0.1:11434"
 		case "llamacpp":
 			c.Endpoint = "http://127.0.0.1:8080"
+		case "openai":
+			c.Endpoint = "https://api.openai.com"
+		case "groq":
+			c.Endpoint = "https://api.groq.com/openai"
 		}
 	}
 	return c

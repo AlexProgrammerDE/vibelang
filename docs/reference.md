@@ -8,7 +8,7 @@
 - `import` statements load other `.vibe` files into isolated module scopes.
 - Inline `* prompt` expressions execute AI work directly at the statement site.
 - Regular statements are executed by the interpreter.
-- AI function calls are delegated to the configured local model client.
+- AI function calls are delegated to the configured model client.
 
 ## Syntax
 
@@ -111,7 +111,9 @@ Supported expressions:
 - inline prompt expressions: `* do something with ${name}`
 - literals: strings, integers, floats, `true`, `false`, `none`
 - list literals: `[1, 2, 3]`
+- list comprehensions: `[upper(name) for name in names if "a" in name]`
 - dict literals: `{"name": "ada"}`
+- dict comprehensions: `{name: len(name) for name in names if len(name) > 3}`
 - arithmetic: `+`, `-`, `*`, `/`, `%`
 - comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`
 - boolean operators: `and`, `or`, `not`
@@ -218,6 +220,7 @@ The runtime coerces model outputs to the declared return type when possible.
 - `channel(capacity=0)`: create a channel handle
 - `channel_send(channel, value, timeout_ms=-1)`: send a value to a channel
 - `channel_recv(channel, timeout_ms=-1)`: receive a dict with `value`, `ok`, and `timeout`
+- `channel_select(channels, timeout_ms=-1)`: wait on many channels and receive a dict with `channel`, `value`, `ok`, `closed`, and `timeout`
 - `channel_close(channel)`: close a channel
 - `mutex()`: create a mutex handle
 - `mutex_lock(mutex, timeout_ms=-1)`: acquire a mutex
@@ -259,6 +262,7 @@ Behavior:
 - `return` ends the function.
 - `call` invokes another user-defined function or a tool-capable builtin, records the result, and asks the model again.
 - Helper calls may omit defaulted parameters, for example `{"action":"call","call":{"name":"range","arguments":{"stop":5}}}`.
+- Self-recursive helper calls are rejected and fed back into the next model step through tool history.
 - Helper calls are limited by `--max-steps`.
 - Nested AI execution is limited by `--max-depth`.
 
@@ -288,9 +292,10 @@ vibelang [flags] <file.vibe>
 
 Flags:
 
-- `--provider`: `ollama` or `llamacpp`
+- `--provider`: `ollama`, `llamacpp`, `openai`, `groq`, or `openai-compatible`
 - `--endpoint`: model server URL
 - `--model`: model name passed to the backend
+- `--api-key`: API key for remote OpenAI-compatible providers
 - `--temperature`: sampling temperature
 - `--max-tokens`: max tokens per AI step
 - `--max-steps`: max helper-call steps per AI function
@@ -305,6 +310,7 @@ Environment variable equivalents:
 - `VIBE_PROVIDER`
 - `VIBE_ENDPOINT`
 - `VIBE_MODEL`
+- `VIBE_API_KEY`
 - `VIBE_TEMPERATURE`
 - `VIBE_MAX_TOKENS`
 - `VIBE_MAX_STEPS`
@@ -312,3 +318,8 @@ Environment variable equivalents:
 - `VIBE_TIMEOUT`
 - `VIBE_CHECK`
 - `VIBE_TRACE`
+
+Provider-specific API key environment variables:
+
+- `OPENAI_API_KEY`
+- `GROQ_API_KEY`

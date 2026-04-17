@@ -99,7 +99,7 @@ func (f *AIFunction) Call(ctx context.Context, interpreter *Interpreter, args []
 	if err != nil {
 		return nil, err
 	}
-	return interpreter.invokeAIFunction(ctx, f, bound, 0)
+	return interpreter.invokeAIFunction(ctx, f, bound, 0, nil)
 }
 
 func (f *AIFunction) scope(args map[string]any) map[string]any {

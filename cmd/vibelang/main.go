@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"vibelang/internal/model"
@@ -15,9 +16,10 @@ import (
 var version = "dev"
 
 func main() {
-	provider := flag.String("provider", envOr("VIBE_PROVIDER", "ollama"), "local model provider: ollama or llamacpp")
+	provider := flag.String("provider", envOr("VIBE_PROVIDER", "ollama"), "model provider: ollama, llamacpp, openai, groq, or openai-compatible")
 	endpoint := flag.String("endpoint", envOr("VIBE_ENDPOINT", ""), "provider endpoint URL")
 	modelName := flag.String("model", envOr("VIBE_MODEL", "gemma4"), "local model name")
+	apiKey := flag.String("api-key", envOr("VIBE_API_KEY", ""), "API key for remote providers such as openai, groq, or openai-compatible gateways")
 	temperature := flag.Float64("temperature", envFloat("VIBE_TEMPERATURE", 0.2), "model temperature")
 	maxTokens := flag.Int("max-tokens", envInt("VIBE_MAX_TOKENS", 768), "maximum tokens to generate per AI step")
 	maxSteps := flag.Int("max-steps", envInt("VIBE_MAX_STEPS", 8), "maximum helper-call steps per AI function")
@@ -56,10 +58,21 @@ func main() {
 		return
 	}
 
+	resolvedAPIKey := strings.TrimSpace(*apiKey)
+	if resolvedAPIKey == "" {
+		switch *provider {
+		case "openai":
+			resolvedAPIKey = envOr("OPENAI_API_KEY", "")
+		case "groq":
+			resolvedAPIKey = envOr("GROQ_API_KEY", "")
+		}
+	}
+
 	client, err := model.NewClient(model.Config{
 		Provider:    *provider,
 		Endpoint:    *endpoint,
 		Model:       *modelName,
+		APIKey:      resolvedAPIKey,
 		Temperature: *temperature,
 		MaxTokens:   *maxTokens,
 		Timeout:     *timeout,

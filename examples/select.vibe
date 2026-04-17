@@ -1,0 +1,15 @@
+first = channel(1)
+second = channel(1)
+
+channel_send(second, "beta")
+selected = channel_select([first, second], timeout_ms=10)
+print(selected["channel"] == second)
+print(selected["value"])
+
+closed = channel(0)
+channel_close(closed)
+closed_packet = channel_select([closed], timeout_ms=10)
+print(closed_packet["closed"])
+
+timeout_packet = channel_select([first], timeout_ms=1)
+print(timeout_packet["timeout"])

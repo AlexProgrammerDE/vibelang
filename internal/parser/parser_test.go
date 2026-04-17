@@ -272,6 +272,37 @@ reverse = items[::-1]
 	}
 }
 
+func TestParseComprehensions(t *testing.T) {
+	source := `names = [upper(name) for name in ["ada", "grace", "linus"] if "a" in name]
+lengths = {name: len(name) for name in names if len(name) > 3}
+`
+
+	program, err := ParseSource(source)
+	if err != nil {
+		t.Fatalf("ParseSource returned error: %v", err)
+	}
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(program.Statements))
+	}
+
+	listAssign, ok := program.Statements[0].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[0])
+	}
+	if _, ok := listAssign.Value.(*ast.ListComprehensionExpr); !ok {
+		t.Fatalf("expected ListComprehensionExpr, got %T", listAssign.Value)
+	}
+
+	dictAssign, ok := program.Statements[1].(*ast.AssignStmt)
+	if !ok {
+		t.Fatalf("expected AssignStmt, got %T", program.Statements[1])
+	}
+	if _, ok := dictAssign.Value.(*ast.DictComprehensionExpr); !ok {
+		t.Fatalf("expected DictComprehensionExpr, got %T", dictAssign.Value)
+	}
+}
+
 func TestParseMacrosAndMacroCalls(t *testing.T) {
 	source := `macro double_expr(value: int) -> int:
     Return the vibelang expression that doubles ${value}.

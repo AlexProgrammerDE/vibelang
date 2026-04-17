@@ -1,0 +1,7 @@
+item = "outside"
+names = [upper(name) for name in ["ada", "grace", "linus"] if "a" in name]
+lengths = {name: len(name) for name in names if len(name) > 3}
+
+print(item)
+print(json(names))
+print(json(lengths))

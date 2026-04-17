@@ -1319,53 +1319,135 @@ func (p *exprParser) parsePrimary() (ast.Expr, error) {
 		}
 		return expr, nil
 	case lexer.TokenLBracket:
-		items := make([]ast.Expr, 0)
-		if !p.match(lexer.TokenRBracket) {
-			for {
-				item, err := p.parseExpression()
-				if err != nil {
-					return nil, err
-				}
-				items = append(items, item)
-				if p.match(lexer.TokenComma) {
-					continue
-				}
-				if !p.match(lexer.TokenRBracket) {
-					return nil, p.errorf("expected ']'")
-				}
-				break
+		if p.match(lexer.TokenRBracket) {
+			return &ast.ListLiteral{Line: token.Line, Elements: []ast.Expr{}}, nil
+		}
+
+		first, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		if p.match(lexer.TokenFor) {
+			return p.parseListComprehension(token, first)
+		}
+
+		items := []ast.Expr{first}
+		for p.match(lexer.TokenComma) {
+			if p.match(lexer.TokenRBracket) {
+				return &ast.ListLiteral{Line: token.Line, Elements: items}, nil
 			}
+			item, err := p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		}
+		if !p.match(lexer.TokenRBracket) {
+			return nil, p.errorf("expected ']'")
 		}
 		return &ast.ListLiteral{Line: token.Line, Elements: items}, nil
 	case lexer.TokenLBrace:
-		items := make([]ast.DictItem, 0)
-		if !p.match(lexer.TokenRBrace) {
-			for {
-				key, err := p.parseExpression()
-				if err != nil {
-					return nil, err
-				}
-				if !p.match(lexer.TokenColon) {
-					return nil, p.errorf("expected ':' in dictionary literal")
-				}
-				value, err := p.parseExpression()
-				if err != nil {
-					return nil, err
-				}
-				items = append(items, ast.DictItem{Key: key, Value: value})
-				if p.match(lexer.TokenComma) {
-					continue
-				}
-				if !p.match(lexer.TokenRBrace) {
-					return nil, p.errorf("expected '}'")
-				}
-				break
+		if p.match(lexer.TokenRBrace) {
+			return &ast.DictLiteral{Line: token.Line, Items: []ast.DictItem{}}, nil
+		}
+
+		firstKey, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		if !p.match(lexer.TokenColon) {
+			return nil, p.errorf("expected ':' in dictionary literal")
+		}
+		firstValue, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		if p.match(lexer.TokenFor) {
+			return p.parseDictComprehension(token, firstKey, firstValue)
+		}
+
+		items := []ast.DictItem{{Key: firstKey, Value: firstValue}}
+		for p.match(lexer.TokenComma) {
+			if p.match(lexer.TokenRBrace) {
+				return &ast.DictLiteral{Line: token.Line, Items: items}, nil
 			}
+			key, err := p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+			if !p.match(lexer.TokenColon) {
+				return nil, p.errorf("expected ':' in dictionary literal")
+			}
+			value, err := p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, ast.DictItem{Key: key, Value: value})
+		}
+		if !p.match(lexer.TokenRBrace) {
+			return nil, p.errorf("expected '}'")
 		}
 		return &ast.DictLiteral{Line: token.Line, Items: items}, nil
 	default:
 		return nil, p.errorf("unexpected token %q", token.Lexeme)
 	}
+}
+
+func (p *exprParser) parseListComprehension(token lexer.Token, element ast.Expr) (ast.Expr, error) {
+	name, iterable, condition, err := p.parseComprehensionTail()
+	if err != nil {
+		return nil, err
+	}
+	if !p.match(lexer.TokenRBracket) {
+		return nil, p.errorf("expected ']'")
+	}
+	return &ast.ListComprehensionExpr{
+		Line:      token.Line,
+		Element:   element,
+		Name:      name,
+		Iterable:  iterable,
+		Condition: condition,
+	}, nil
+}
+
+func (p *exprParser) parseDictComprehension(token lexer.Token, key, value ast.Expr) (ast.Expr, error) {
+	name, iterable, condition, err := p.parseComprehensionTail()
+	if err != nil {
+		return nil, err
+	}
+	if !p.match(lexer.TokenRBrace) {
+		return nil, p.errorf("expected '}'")
+	}
+	return &ast.DictComprehensionExpr{
+		Line:      token.Line,
+		Key:       key,
+		Value:     value,
+		Name:      name,
+		Iterable:  iterable,
+		Condition: condition,
+	}, nil
+}
+
+func (p *exprParser) parseComprehensionTail() (string, ast.Expr, ast.Expr, error) {
+	if !p.check(lexer.TokenIdentifier) {
+		return "", nil, nil, p.errorf("expected comprehension variable name")
+	}
+	name := p.advance().Lexeme
+	if !p.match(lexer.TokenIn) {
+		return "", nil, nil, p.errorf("expected 'in' in comprehension")
+	}
+	iterable, err := p.parseExpression()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	var condition ast.Expr
+	if p.match(lexer.TokenIf) {
+		condition, err = p.parseExpression()
+		if err != nil {
+			return "", nil, nil, err
+		}
+	}
+	return name, iterable, condition, nil
 }
 
 func (p *exprParser) parseMacroCall(at lexer.Token) (ast.Expr, error) {

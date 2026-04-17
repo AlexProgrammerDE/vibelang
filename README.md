@@ -11,15 +11,17 @@
 - Supports Python-style default parameter values and keyword arguments for user-defined functions and builtins.
 - Supports inline `* prompt` expressions in assignments, conditions, loops, and standalone statements.
 - Evaluates `${...}` prompt placeholders as real vibelang expressions, including indexing and prompt-safe builtins such as `len`, `basename`, or `join_path`.
+- Supports Python-style list and dict comprehensions with optional trailing `if` filters.
 - Supports Python-like member access for imported modules and dict-shaped values, so `shared.helper()` works naturally.
 - Supports Python-style negative indexing and slicing for lists and strings, plus operand-returning `and`/`or` short-circuit behavior.
 - Lets AI functions call other AI functions through a strict JSON tool-call loop.
+- Rejects self-recursive AI helper calls before they spiral into repeated depth exhaustion, and feeds the rejection back into the next model step.
 - Adds first-class sets, JSON text parsing and formatting helpers, structured logging, and OpenTelemetry trace export.
 - Captures surrounding non-function values by value when an AI function is defined, so later mutations do not silently change prompt inputs.
-- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, mutexes, wait groups, and runtime metrics.
+- Exposes a broader standard library for AI execution, including filesystem, path, JSON, string, environment, globbing, HTTP, TCP sockets, time, math, local process helpers, async tasks, channels, channel selection, mutexes, wait groups, and runtime metrics.
 - Starts AI-backed HTTP servers, so each incoming request can be handled by a vibelang function.
 - Resolves modules from relative paths, `VIBE_PATH`, working-directory `std/` modules, direct URLs, and `github.com/owner/repo/path@ref` imports.
-- Runs against local model servers, with first-class support for Ollama and `llama.cpp`.
+- Runs against local or remote model servers, with first-class support for Ollama, `llama.cpp`, OpenAI, Groq, and other OpenAI-compatible gateways.
 - Sends chat-style structured JSON requests to local backends, which works better with modern Gemma 4 model servers.
 - Caches parsed prompt templates so repeated `${...}` interpolation work does not keep reparsing the same expressions.
 
@@ -47,6 +49,18 @@ llama-server -m /models/gemma4.gguf --port 8080
 ```
 
 If your local model tag or GGUF filename uses a different name, pass that exact value with `--model`.
+
+Run against a remote OpenAI-compatible endpoint:
+
+```bash
+export OPENAI_API_KEY=...
+./bin/vibelang --provider openai --model gpt-4.1-mini examples/hello.vibe
+```
+
+```bash
+export GROQ_API_KEY=...
+./bin/vibelang --provider groq --model openai/gpt-oss-20b examples/hello.vibe
+```
 
 Validate a program without hitting the model:
 
@@ -105,6 +119,16 @@ print(items[1:3])
 print(items[::-1])
 ```
 
+Comprehensions work the way Python users expect:
+
+```python
+names = [upper(name) for name in ["ada", "grace", "linus"] if "a" in name]
+lengths = {name: len(name) for name in names if len(name) > 3}
+
+print(json(names))
+print(json(lengths))
+```
+
 AI macros expand into real expressions before evaluation:
 
 ```python
@@ -156,6 +180,18 @@ print(await_task(first))
 print(await_task(second))
 ```
 
+Channel selection adds a more Go-like coordination primitive:
+
+```python
+fast = channel(1)
+slow = channel(1)
+channel_send(slow, "background")
+
+packet = channel_select([fast, slow], timeout_ms=10)
+print(packet["channel"] == slow)
+print(packet["value"])
+```
+
 HTTP handlers can also be AI-backed:
 
 ```python
@@ -191,7 +227,7 @@ The deterministic runtime now covers more of the boring work that AI functions s
 - System: `run_process`, `env`, `cwd`, `now`, `unix_time`, `sleep`
 - Math: `sqrt`, `pow`, `abs`, `floor`, `ceil`, plus `pi` and `e`
 - Network: `http_request`, `socket_open`, `socket_write`, `socket_read`, `socket_close`
-- Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
+- Concurrency: `spawn`, `await_task`, `task_status`, `channel`, `channel_send`, `channel_recv`, `channel_select`, `channel_close`, `mutex`, `mutex_lock`, `mutex_unlock`, `wait_group`, `wait_group_add`, `wait_group_done`, `wait_group_wait`
 - Services: `http_serve`, `http_server_stop`
 - Observability: `log`, `otel_init_stdout`, `otel_span_start`, `otel_span_event`, `otel_span_end`, `otel_flush`, `metrics_snapshot`
 

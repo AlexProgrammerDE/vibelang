@@ -247,6 +247,17 @@ type ListLiteral struct {
 func (*ListLiteral) exprNode()         {}
 func (e *ListLiteral) LineNumber() int { return e.Line }
 
+type ListComprehensionExpr struct {
+	Line      int
+	Element   Expr
+	Name      string
+	Iterable  Expr
+	Condition Expr
+}
+
+func (*ListComprehensionExpr) exprNode()         {}
+func (e *ListComprehensionExpr) LineNumber() int { return e.Line }
+
 type DictItem struct {
 	Key   Expr
 	Value Expr
@@ -259,3 +270,15 @@ type DictLiteral struct {
 
 func (*DictLiteral) exprNode()         {}
 func (e *DictLiteral) LineNumber() int { return e.Line }
+
+type DictComprehensionExpr struct {
+	Line      int
+	Key       Expr
+	Value     Expr
+	Name      string
+	Iterable  Expr
+	Condition Expr
+}
+
+func (*DictComprehensionExpr) exprNode()         {}
+func (e *DictComprehensionExpr) LineNumber() int { return e.Line }

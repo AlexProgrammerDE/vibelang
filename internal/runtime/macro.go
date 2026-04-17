@@ -142,7 +142,7 @@ func (i *Interpreter) expandMacro(ctx context.Context, env *Environment, macro *
 			}
 			i.incrementMetric("ai_tool_calls_total", 1)
 			i.tracef("%s calling %s with %s", macro.Name(), action.Call.Name, jsonString(bound))
-			result, err := i.invokeTool(ctx, callee, bound, 1)
+			result, err := i.invokeTool(ctx, callee, bound, 1, nil)
 			if err != nil {
 				i.incrementMetric("ai_tool_call_errors_total", 1)
 				return nil, err

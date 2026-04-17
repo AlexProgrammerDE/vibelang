@@ -33,7 +33,7 @@ Useful flags:
 - `--check`: parse the program and exit before contacting the model.
 - `--trace`: inspect raw model responses and helper calls.
 
-`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/macros.vibe` covers AI macro expansion. `examples/observability.vibe` covers sets, JSON text helpers, structured logs, and OpenTelemetry tracing. `examples/stdlib.vibe` and `examples/ops.vibe` cover the broader deterministic standard library.
+`examples/pi_file.vibe` is a good smoke test because it exercises inline prompts, boolean coercion, and filesystem tool calls. `examples/modules/main.vibe` is useful once you want to verify module imports and captured prompt scope. `examples/slices.vibe` verifies the Python-style slicing surface without needing a model call. `examples/comprehensions.vibe` covers Python-style list and dict comprehensions. `examples/macros.vibe` covers AI macro expansion. `examples/observability.vibe` covers sets, JSON text helpers, structured logs, and OpenTelemetry tracing. `examples/stdlib.vibe`, `examples/ops.vibe`, and `examples/select.vibe` cover the broader deterministic standard library and channel coordination helpers.
 
 ## Run With llama.cpp
 
@@ -56,6 +56,35 @@ Run a program:
 ```
 
 If your server is fronted by another host or port, point `--endpoint` at that address.
+
+## Optional: Run With Remote OpenAI-Compatible Providers
+
+`vibelang` can also talk to remote OpenAI-compatible backends when you want to compare a hosted model against the local path.
+
+With OpenAI:
+
+```bash
+export OPENAI_API_KEY=...
+./bin/vibelang --provider openai --model gpt-4.1-mini examples/hello.vibe
+```
+
+With Groq:
+
+```bash
+export GROQ_API_KEY=...
+./bin/vibelang --provider groq --model openai/gpt-oss-20b examples/hello.vibe
+```
+
+With another OpenAI-compatible gateway:
+
+```bash
+export VIBE_API_KEY=...
+./bin/vibelang \
+  --provider openai-compatible \
+  --endpoint https://your-gateway.example.com \
+  --model your-model \
+  examples/hello.vibe
+```
 
 ## Keep AI Execution Predictable
 

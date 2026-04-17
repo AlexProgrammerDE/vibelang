@@ -82,7 +82,14 @@ func buildMacroPrompt(macro *AIMacro, instructions string, args map[string]any, 
 	if len(history) > 0 {
 		builder.WriteString("Tool history:\n")
 		for _, event := range history {
-			builder.WriteString(fmt.Sprintf("- %s(%s) => %s\n", event.Name, jsonString(event.Arguments), jsonString(event.Result)))
+			switch {
+			case event.Rejected:
+				builder.WriteString(fmt.Sprintf("- %s(%s) => rejected: %s\n", event.Name, jsonString(event.Arguments), event.Error))
+			case event.Error != "":
+				builder.WriteString(fmt.Sprintf("- %s(%s) => error: %s\n", event.Name, jsonString(event.Arguments), event.Error))
+			default:
+				builder.WriteString(fmt.Sprintf("- %s(%s) => %s\n", event.Name, jsonString(event.Arguments), jsonString(event.Result)))
+			}
 		}
 		builder.WriteString("\n")
 	}

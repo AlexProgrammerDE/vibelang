@@ -1,6 +1,6 @@
 # Tutorial: Run Your First vibelang Program
 
-This tutorial is for developers who want to get a first `vibelang` program running end to end with a local model.
+This tutorial is for developers who want to get a first `vibelang` program running end to end with a model backend, starting with the local path.
 
 ## Goal
 
@@ -93,6 +93,16 @@ print(items[1:3])
 print(items[::-1])
 ```
 
+Comprehensions are available too:
+
+```python
+names = [upper(name) for name in ["ada", "grace", "linus"] if "a" in name]
+lengths = {name: len(name) for name in names if len(name) > 3}
+
+print(json(names))
+print(json(lengths))
+```
+
 Modules work with ordinary files:
 
 ```python
@@ -132,6 +142,16 @@ wait_group_wait(wg)
 print(await_task(task))
 ```
 
+And channel selection for Go-like coordination:
+
+```python
+first = channel(1)
+second = channel(1)
+channel_send(second, "ready")
+packet = channel_select([first, second], timeout_ms=10)
+print(packet["value"])
+```
+
 ## 4. Run It
 
 With Ollama:
@@ -144,6 +164,13 @@ With `llama.cpp`:
 
 ```bash
 ./bin/vibelang --provider llamacpp --endpoint http://127.0.0.1:8080 --model gemma4 hello.vibe
+```
+
+With a remote OpenAI-compatible provider:
+
+```bash
+export OPENAI_API_KEY=...
+./bin/vibelang --provider openai --model gpt-4.1-mini hello.vibe
 ```
 
 You should see a single generated line printed to stdout.
@@ -173,9 +200,11 @@ When you only want to check parsing or module resolution, use `--check`:
 - Run [examples/modules/main.vibe](../examples/modules/main.vibe) to see imports and module-backed AI functions.
 - Run [examples/keyword_args.vibe](../examples/keyword_args.vibe) to see default parameters and keyword calls.
 - Run [examples/slices.vibe](../examples/slices.vibe) to see slicing on strings and lists.
+- Run [examples/comprehensions.vibe](../examples/comprehensions.vibe) to see list and dict comprehensions.
 - Run [examples/tool_chain.vibe](../examples/tool_chain.vibe) to see AI tool calls in action.
 - Run [examples/pi_file.vibe](../examples/pi_file.vibe) to see inline prompts and filesystem tools together.
 - Run [examples/stdlib.vibe](../examples/stdlib.vibe) to see expression-aware prompt interpolation plus the expanded standard library.
 - Run [examples/ops.vibe](../examples/ops.vibe) to see globbing, file moves, process execution, and math helpers together.
 - Run [examples/concurrency.vibe](../examples/concurrency.vibe) to see spawned tasks, channels, and wait groups.
+- Run [examples/select.vibe](../examples/select.vibe) to see `channel_select`.
 - Run [examples/http_server.vibe](../examples/http_server.vibe) to see AI-backed HTTP handlers and the bundled `std/web` module.
